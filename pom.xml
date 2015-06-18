@@ -57,6 +57,12 @@
                         <version>2.12.4</version>
                         <configuration>
                             <argLine>-Xmx1g</argLine>
+                            <systemProperties>
+                                <property>
+                                    <name>java.util.logging.config.file</name>
+                                    <value>src/test/resources/logging.properties</value>
+                                </property>
+                            </systemProperties>
                         </configuration>
                     </plugin>
                 </plugins>
