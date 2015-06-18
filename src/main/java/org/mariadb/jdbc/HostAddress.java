@@ -144,7 +144,11 @@ public class HostAddress {
 
     @Override
     public String toString() {
-        return "HostAddress{" + host + ":" + port + "}";
+        return "HostAddress{" +
+                "host='" + host + '\'' +
+                ", port=" + port +
+                ", type='" + type + '\'' +
+                '}';
     }
 }
 
