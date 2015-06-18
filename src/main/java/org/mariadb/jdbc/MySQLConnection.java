@@ -54,6 +54,7 @@ import org.mariadb.jdbc.internal.common.QueryException;
 import org.mariadb.jdbc.internal.common.Utils;
 import org.mariadb.jdbc.internal.mysql.MySQLProtocol;
 import org.mariadb.jdbc.internal.mysql.Protocol;
+import org.mariadb.jdbc.internal.mysql.listener.FailoverListener;
 
 import java.io.IOException;
 import java.net.SocketException;
@@ -67,6 +68,10 @@ public final class MySQLConnection implements Connection {
      * the protocol to communicate with.
      */
     private final Protocol protocol;
+    /**
+     * the failoverListener to synchronized operations.
+     */
+    private final FailoverListener failoverListener;
     /**
      * save point count - to generate good names for the savepoints.
      */
@@ -92,6 +97,7 @@ public final class MySQLConnection implements Connection {
      */
     private MySQLConnection(Protocol protocol) {
         this.protocol = protocol;
+        this.failoverListener = protocol.getProxy().listener;
         clientInfoProperties = protocol.getInfo();
     }
 
@@ -276,7 +282,7 @@ public final class MySQLConnection implements Connection {
      * @throws SQLException if there is a problem
      */
     public void setReadOnly(final boolean readOnly) throws SQLException {
-        synchronized (protocol) {
+        synchronized (failoverListener) {
             protocol.setReadonly(readOnly);
         }
     }

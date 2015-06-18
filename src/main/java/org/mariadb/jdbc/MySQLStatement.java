@@ -58,6 +58,7 @@ import org.mariadb.jdbc.internal.common.queryresults.ModifyQueryResult;
 import org.mariadb.jdbc.internal.common.queryresults.QueryResult;
 import org.mariadb.jdbc.internal.common.queryresults.ResultSetType;
 import org.mariadb.jdbc.internal.mysql.Protocol;
+import org.mariadb.jdbc.internal.mysql.listener.FailoverListener;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -74,6 +75,10 @@ public class MySQLStatement implements Statement {
      * the  Connection object.
      */
     protected MySQLConnection connection;
+    /**
+     * the failoverListener to synchronized operations.
+     */
+    private final FailoverListener failoverListener;
 
 
     /**
@@ -115,6 +120,7 @@ public class MySQLStatement implements Statement {
     public MySQLStatement(MySQLConnection connection) {
         this.protocol = connection.getProtocol();
         this.connection = connection;
+        this.failoverListener = this.protocol.getProxy().listener;
         this.escapeProcessing = true;
         cachedResultSets = new LinkedList<Object>();
 
@@ -259,7 +265,7 @@ public class MySQLStatement implements Statement {
      * @throws SQLException
      */
     protected boolean execute(Query query) throws SQLException {
-        synchronized (protocol) {
+        synchronized (failoverListener) {
             if (protocol.getActiveResult() != null) {
                 protocol.getActiveResult().close();
             }
@@ -298,7 +304,7 @@ public class MySQLStatement implements Statement {
      */
     protected boolean execute(List<Query> queries, boolean isRewritable, int rewriteOffset) throws SQLException {
         //System.out.println(query);
-        synchronized (protocol) {
+        synchronized (failoverListener) {
             if (protocol.getActiveResult() != null) {
                 protocol.getActiveResult().close();
             }
@@ -414,7 +420,7 @@ public class MySQLStatement implements Statement {
         // immediately garbage collected
         cachedResultSets.clear();
         if (isStreaming()) {
-            synchronized (protocol) {
+            synchronized (failoverListener) {
                 // Skip all outstanding result sets
                 while(getMoreResults(true)) {
                 }
@@ -959,7 +965,7 @@ public class MySQLStatement implements Statement {
 
     private boolean getMoreResults(boolean streaming) throws SQLException {
         try {
-            synchronized(protocol) {
+            synchronized(failoverListener) {
                 if (queryResult != null) {
                     queryResult.close();
                 }
@@ -1245,7 +1251,7 @@ public class MySQLStatement implements Statement {
         boolean rewriteBatchedStatements = "true".equals(getProtocol().getInfo().getProperty("rewriteBatchedStatements"));
         if (rewriteBatchedStatements) allowMultiQueries=true;
         try {
-        	synchronized (this.protocol) {
+        	synchronized (this.failoverListener) {
                 if (allowMultiQueries) {
                     int size = batchQueries.size();
                     MySQLStatement ps = (MySQLStatement) connection.createStatement();
