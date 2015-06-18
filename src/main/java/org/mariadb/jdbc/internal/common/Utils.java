@@ -51,7 +51,7 @@ package org.mariadb.jdbc.internal.common;
 import org.mariadb.jdbc.JDBCUrl;
 import org.mariadb.jdbc.internal.mysql.*;
 import org.mariadb.jdbc.internal.mysql.listener.AuroraListener;
-import org.mariadb.jdbc.internal.mysql.listener.FailoverListener;
+import org.mariadb.jdbc.internal.mysql.listener.MasterOnlyFailoverListener;
 import org.mariadb.jdbc.internal.mysql.listener.ReplicationListener;
 
 import java.lang.reflect.Proxy;
@@ -525,7 +525,7 @@ public class Utils {
             proxyfiedProtocol = (Protocol) Proxy.newProxyInstance(
                     MySQLProtocol.class.getClassLoader(),
                     new Class[]{Protocol.class},
-                    new FailoverProxy(new MySQLProtocol(jdbcUrl), new FailoverListener()));
+                    new FailoverProxy(new MySQLProtocol(jdbcUrl), new MasterOnlyFailoverListener()));
         } else {
 
             if (jdbcUrl.getHaMode().equals(UrlHAMode.AURORA)) {
@@ -542,7 +542,7 @@ public class Utils {
                 proxyfiedProtocol = (Protocol) Proxy.newProxyInstance(
                         MySQLProtocol.class.getClassLoader(),
                         new Class[]{Protocol.class},
-                        new FailoverProxy(new MySQLProtocol(jdbcUrl), new FailoverListener()));
+                        new FailoverProxy(new MySQLProtocol(jdbcUrl), new MasterOnlyFailoverListener()));
             }
         }
         return proxyfiedProtocol;
