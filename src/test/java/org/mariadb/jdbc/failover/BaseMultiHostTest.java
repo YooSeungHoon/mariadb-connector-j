@@ -8,14 +8,8 @@ import org.mariadb.jdbc.JDBCUrl;
 import org.mariadb.jdbc.MySQLConnection;
 import org.mariadb.jdbc.internal.common.UrlHAMode;
 import org.mariadb.jdbc.internal.mysql.*;
-import org.mariadb.jdbc.internal.mysql.listener.AuroraListener;
-import org.mariadb.jdbc.internal.mysql.listener.BaseListener;
-import org.mariadb.jdbc.internal.mysql.listener.FailoverListener;
-import org.mariadb.jdbc.internal.mysql.listener.ReplicationListener;
 
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.lang.reflect.Method;
 import java.sql.*;
 import java.util.logging.*;
@@ -32,12 +26,13 @@ import java.util.logging.*;
  */
 @Ignore
 public class BaseMultiHostTest {
-    protected static Logger log = Logger.getLogger("org.maria.jdbc");
+    protected static Logger log = Logger.getLogger("org.mariadb.jdbc");
 
     protected static String initialGaleraUrl;
     protected static String initialAuroraUrl;
     protected static String initialReplicationUrl;
     protected static String initialUrl;
+
 
     protected static String proxyGaleraUrl;
     protected static String proxyAuroraUrl;
@@ -57,36 +52,17 @@ public class BaseMultiHostTest {
         initialReplicationUrl = System.getProperty("defaultReplicationUrl");
         initialAuroraUrl = System.getProperty("defaultAuroraHostUrl");
 
-        String logLevel = System.getProperty("logLevel");
-        if (logLevel != null) {
-            if (log.getHandlers().length == 0) {
-                ConsoleHandler consoleHandler = new ConsoleHandler();
-                consoleHandler.setFormatter(new CustomFormatter());
-                consoleHandler.setLevel(Level.parse(logLevel));
-                log.addHandler(consoleHandler);
-                log.setLevel(Level.FINE);
-
-                Logger.getLogger(ReplicationListener.class.getName()).setLevel(Level.ALL);
-                Logger.getLogger(ReplicationListener.class.getName()).addHandler(consoleHandler);
-                Logger.getLogger(AuroraListener.class.getName()).setLevel(Level.ALL);
-                Logger.getLogger(AuroraListener.class.getName()).addHandler(consoleHandler);
-                Logger.getLogger(FailoverProxy.class.getName()).setLevel(Level.ALL);
-                Logger.getLogger(FailoverProxy.class.getName()).addHandler(consoleHandler);
-                Logger.getLogger(AuroraMultiNodesProtocol.class.getName()).setLevel(Level.FINE);
-                Logger.getLogger(AuroraMultiNodesProtocol.class.getName()).addHandler(consoleHandler);
-                Logger.getLogger(MySQLProtocol.class.getName()).setLevel(Level.FINE);
-                Logger.getLogger(MySQLProtocol.class.getName()).addHandler(consoleHandler);
-                Logger.getLogger(BaseListener.class.getName()).setLevel(Level.FINE);
-                Logger.getLogger(BaseListener.class.getName()).addHandler(consoleHandler);
-                Logger.getLogger(FailoverListener.class.getName()).setLevel(Level.FINE);
-                Logger.getLogger(FailoverListener.class.getName()).addHandler(consoleHandler);
-
-            }
-        }
-
         if (initialReplicationUrl != null) proxyReplicationUrl=createProxies(initialReplicationUrl);
         if (initialGaleraUrl != null) proxyGaleraUrl=createProxies(initialGaleraUrl);
         if (initialAuroraUrl != null) proxyAuroraUrl=createProxies(initialAuroraUrl);
+    }
+
+    public static boolean requireMinimumVersion(Connection connection, int major, int minor) throws SQLException {
+        DatabaseMetaData md = connection.getMetaData();
+        int dbMajor = md.getDatabaseMajorVersion();
+        int dbMinor = md.getDatabaseMinorVersion();
+        return (dbMajor > major ||
+                (dbMajor == major && dbMinor >= minor));
     }
 
     private static String createProxies(String tmpUrl) {
@@ -95,11 +71,13 @@ public class BaseMultiHostTest {
         username = tmpJdbcUrl.getUsername();
         hostname = tmpJdbcUrl.getHostAddresses().get(0).host;
         String sockethosts = "";
+        HostAddress hostAddress;
         for (int i=0;i<tmpJdbcUrl.getHostAddresses().size();i++) {
             try {
-                tcpProxies[i] = new TcpProxy(tmpJdbcUrl.getHostAddresses().get(i).host, tmpJdbcUrl.getHostAddresses().get(i).port);
-                log.info("creating socket "+tmpJdbcUrl.getHostAddresses().get(i).host+":"+tmpJdbcUrl.getHostAddresses().get(i).port+" -> localhost:"+tcpProxies[i].getLocalPort());
-                sockethosts+=",localhost:"+tcpProxies[i].getLocalPort();
+                hostAddress = tmpJdbcUrl.getHostAddresses().get(i);
+                tcpProxies[i] = new TcpProxy(hostAddress.host, hostAddress.port);
+                log.info("creating socket "+hostAddress.host+":"+hostAddress.port+" -> localhost:"+tcpProxies[i].getLocalPort());
+                sockethosts+=",address=(host=localhost)(port="+tcpProxies[i].getLocalPort()+")"+((hostAddress.type != null)?"(type="+hostAddress.type+")":"");
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -108,7 +86,7 @@ public class BaseMultiHostTest {
         if (tmpJdbcUrl.getHaMode().equals(UrlHAMode.NONE)) {
             return "jdbc:mysql://"+sockethosts.substring(1)+"/"+tmpUrl.split("/")[3];
         } else {
-            return "jdbc:mysql:"+tmpJdbcUrl.getHaMode()+"://"+sockethosts.substring(1)+"/"+tmpUrl.split("/")[3];
+            return "jdbc:mysql:"+tmpJdbcUrl.getHaMode().toString().toLowerCase()+"://"+sockethosts.substring(1)+"/"+tmpUrl.split("/")[3];
         }
 
     }
@@ -179,38 +157,5 @@ public class BaseMultiHostTest {
         Method getProtocol = MySQLConnection.class.getDeclaredMethod("getProtocol", new Class[0]);
         getProtocol.setAccessible(true);
         return (Protocol) getProtocol.invoke(conn);
-    }
-}
-class CustomFormatter  extends Formatter {
-    private static final String format = "[%1$tT] %4$s: %2$s - %5$s %6$s%n";
-    private final java.util.Date dat = new java.util.Date();
-    public synchronized String format(LogRecord record) {
-        dat.setTime(record.getMillis());
-        String source;
-        if (record.getSourceClassName() != null) {
-            source = record.getSourceClassName();
-            if (record.getSourceMethodName() != null) {
-                source += " " + record.getSourceMethodName();
-            }
-        } else {
-            source = record.getLoggerName();
-        }
-        String message = formatMessage(record);
-        String throwable = "";
-        if (record.getThrown() != null) {
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            pw.println();
-            record.getThrown().printStackTrace(pw);
-            pw.close();
-            throwable = sw.toString();
-        }
-        return String.format(format,
-                dat,
-                source,
-                record.getLoggerName(),
-                record.getLevel().getName(),
-                message,
-                throwable);
     }
 }

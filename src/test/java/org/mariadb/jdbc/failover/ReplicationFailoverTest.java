@@ -5,6 +5,7 @@ import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.theories.suppliers.TestedOn;
+import org.mariadb.jdbc.MySQLConnection;
 import org.mariadb.jdbc.internal.common.QueryException;
 
 import java.sql.Connection;
@@ -49,14 +50,17 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
         log.fine("testMultiHostWriteOnSlave begin");
         try {
             connection = getNewConnection(false);
-            //if super user, has write to write on slaves
-            Assume.assumeTrue(!hasSuperPrivilege(connection, "testMultiHostWriteOnSlave"));
+            if (!requireMinimumVersion(connection, 10, 0) && hasSuperPrivilege(connection, "testMultiHostWriteOnSlave")) {
+                //on version > 10 use SESSION READ-ONLY, before no control
+                //and if super user, has write to write on slaves,
+                Assume.assumeTrue(false);
+            }
+
             connection.setReadOnly(true);
             Statement stmt = connection.createStatement();
             Assert.assertTrue(connection.isReadOnly());
-            stmt.execute("drop table  if exists multinodeFail");
             try {
-                stmt.execute("create table multinodeFail (id int not null primary key auto_increment, test VARCHAR(10))");
+                stmt.execute("drop table  if exists multinode4");
                 log.severe("ERROR - > must not be able to write on slave --> check if you database is start with --read-only");
                 Assert.fail();
             } catch (SQLException e) { }
@@ -67,7 +71,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
     }
 
     @Test
-    public void testMultiHostReadOnSlave() throws SQLException {
+    public void testMultiHostReadOnSlave() throws SQLException, InterruptedException{
         Assume.assumeTrue(initialReplicationUrl != null);
         Connection connection = null;
         log.fine("testMultiHostReadOnSlave begin");
@@ -78,6 +82,9 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             stmt.execute("create table multinodeRead (id int not null primary key auto_increment, test VARCHAR(10))");
 
             connection.setReadOnly(true);
+            //wait slave replication
+            Thread.sleep(100);
+
             ResultSet rs = stmt.executeQuery("Select count(*) from multinodeRead");
             Assert.assertTrue(rs.next());
         } finally {
@@ -97,9 +104,104 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             Statement st = connection.createStatement();
             ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
             rs.next();
+            int slaveServerId = rs.getInt(2);
+
+            stopProxy(slaveServerId, 2000);
+
+            rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
+            rs.next();
+            int masterServerId = rs.getInt(2);
+
+            Assert.assertFalse(slaveServerId == masterServerId);
+            Assert.assertFalse(connection.isReadOnly());
+        } finally {
+            try {
+                Thread.sleep(2000); //wait to not have problem with next test
+            } catch (InterruptedException e) {
+            }
+            if (connection != null) connection.close();
+            log.fine("failoverSlaveToMaster done");
+        }
+    }
+
+
+    @Test
+    public void failoverSlaveToMasterFail() throws SQLException {
+        Assume.assumeTrue(initialReplicationUrl != null);
+        Connection connection = null;
+        log.fine("failoverSlaveToMaster begin");
+        try {
+            connection = getNewConnection(true);
+            Statement st = connection.createStatement();
+            ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
+            rs.next();
+            int masterServerI1d = rs.getInt(2);
+            connection.setReadOnly(true);
+            stopProxy(masterServerI1d, 2000);
+            try {
+                //must not throw error until there is a query
+                connection.setReadOnly(false);
+            } catch (SQLException e) {
+                Assert.fail();
+            }
+        } finally {
+            try {
+                Thread.sleep(2000); //wait to not have problem with next test
+            } catch (InterruptedException e) {
+            }
+            if (connection != null) connection.close();
+            log.fine("failoverSlaveToMaster done");
+        }
+    }
+
+    @Test
+    public void failoverDuringMasterSetReadOnly() throws SQLException {
+        Assume.assumeTrue(initialReplicationUrl != null);
+        Connection connection = null;
+        log.fine("failoverSlaveToMaster begin");
+        try {
+            connection = getNewConnection(true);
+            Statement st = connection.createStatement();
+            ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
+            rs.next();
+            int masterServerId = rs.getInt(2);
+
+            stopProxy(masterServerId, 2000);
+
+            connection.setReadOnly(true);
+
+            rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
+            rs.next();
+            int slaveServerId = rs.getInt(2);
+
+            Assert.assertFalse(slaveServerId == masterServerId);
+            Assert.assertTrue(connection.isReadOnly());
+        } finally {
+            try {
+                Thread.sleep(2000); //wait to not have problem with next test
+            } catch (InterruptedException e) {
+            }
+            if (connection != null) connection.close();
+            log.fine("failoverSlaveToMaster done");
+        }
+    }
+
+    @Test
+    public void failoverDuringSlaveSetReadOnly() throws SQLException {
+        Assume.assumeTrue(initialReplicationUrl != null);
+        Connection connection = null;
+        log.fine("failoverSlaveToMaster begin");
+        try {
+            connection = getNewConnection(true);
+            connection.setReadOnly(true);
+            Statement st = connection.createStatement();
+            ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
+            rs.next();
             int salveServerId = rs.getInt(2);
 
-            stopProxy(1, 2000);
+            stopProxy(salveServerId, 2000);
+
+            connection.setReadOnly(false);
 
             rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
             rs.next();
@@ -108,14 +210,15 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             Assert.assertFalse(salveServerId == masterServerId);
             Assert.assertFalse(connection.isReadOnly());
         } finally {
-            log.fine("failoverSlaveToMaster done");
             try {
                 Thread.sleep(2000); //wait to not have problem with next test
             } catch (InterruptedException e) {
             }
             if (connection != null) connection.close();
+            log.fine("failoverSlaveToMaster done");
         }
     }
+
 
 
     @Test()
@@ -126,13 +229,23 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
         try {
             connection = getNewConnection(true);
             Statement st = connection.createStatement();
+
+            ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
+            rs.next();
+            int masterServerId = rs.getInt(2);
+            log.fine("master server_id = " + masterServerId);
             connection.setReadOnly(true);
-            stopProxy(0, 2000);
-            stopProxy(1, 2000);
+            rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
+            rs.next();
+            int firstSlaveId = rs.getInt(2);
+            log.fine("slave1 server_id = " + firstSlaveId);
+
+            stopProxy(masterServerId, 2000);
+            stopProxy(firstSlaveId, 2000);
 
             //must throw an error, because not in autoreconnect Mode
             try {
-                ResultSet rs = st.executeQuery("SELECT CONNECTION_ID()");
+                rs = st.executeQuery("SELECT CONNECTION_ID()");
                 rs.next();
                 Assert.fail();
             } catch (SQLException e) {
@@ -168,8 +281,8 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             int firstSlaveId = rs.getInt(2);
             log.fine("slave1 server_id = " + firstSlaveId);
 
-            stopProxy(0, 3000);
-            stopProxy(1, 3000);
+            stopProxy(masterServerId, 3000);
+            stopProxy(firstSlaveId, 3000);
 
             //must reconnect to the second slave without error
             rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
@@ -200,7 +313,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             rs.next();
             int masterServerId = rs.getInt(2);
 
-            stopProxy(1, 100);
+            stopProxy(masterServerId, 100);
             //with autoreconnect, the connection must reconnect automatically
             rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
             rs.next();
@@ -229,7 +342,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
             rs.next();
             int masterServerId = rs.getInt(2);
-            stopProxy(0, 2000);
+            stopProxy(masterServerId, 2000);
             try {
                 st.execute("SELECT 1");
             } catch (Exception e) {
@@ -245,6 +358,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             Assert.assertTrue(currentServerId == masterServerId);
             Assert.assertFalse(connection.isReadOnly());
         } finally {
+            Thread.sleep(2000);
             log.fine("checkReconnectionToMasterAfterTimeout done");
             if (connection != null) connection.close();
         }
@@ -261,7 +375,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
             rs.next();
             int masterServerId = rs.getInt(2);
-            stopProxy(0, 2000);
+            stopProxy(masterServerId, 2000);
 
             for (int i = 0; i < 10; i++) {
                 rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
@@ -277,6 +391,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             int currentServerId = rs.getInt(2);
             Assert.assertTrue(currentServerId == masterServerId);
         } finally {
+            Thread.sleep(2000);
             log.fine("checkReconnectionToMasterAfterQueryNumber done");
             if (connection != null) connection.close();
         }
@@ -296,7 +411,11 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             st.execute("create table multinode2 (id int not null primary key , amount int not null) ENGINE = InnoDB");
             st.execute("insert into multinode2 (id, amount) VALUE (1 , 100)");
 
-            stopProxy(0, 2000);
+            ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
+            rs.next();
+            int masterServerId = rs.getInt(2);
+
+            stopProxy(masterServerId, 2000);
             try {
                 st.execute("insert into multinode2 (id, amount) VALUE (2 , 100)");
                 Assert.fail();
@@ -319,7 +438,12 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             Statement st = connection.createStatement();
             st.execute("drop table  if exists multinodeTransaction1");
             st.execute("create table multinodeTransaction1 (id int not null primary key , amount int not null) ENGINE = InnoDB");
-            stopProxy(0,2000);
+
+            ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
+            rs.next();
+            int masterServerId = rs.getInt(2);
+
+            stopProxy(masterServerId,2000);
 
             try {
                 Thread.sleep(2000);

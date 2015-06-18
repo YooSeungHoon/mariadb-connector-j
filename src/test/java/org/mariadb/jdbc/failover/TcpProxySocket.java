@@ -1,6 +1,7 @@
 package org.mariadb.jdbc.failover;
 
 import java.io.*;
+import java.net.BindException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.Executors;
@@ -48,7 +49,15 @@ public class TcpProxySocket implements Runnable {
 
         stop = false;
         try {
-            if (ss.isClosed()) ss = new ServerSocket(localport);
+            try {
+                if (ss.isClosed()) ss = new ServerSocket(localport);
+            } catch (BindException b) {
+                //in case for testing crash and reopen too quickly
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException i) { }
+                if (ss.isClosed()) ss = new ServerSocket(localport);
+            }
             final byte[] request = new byte[1024];
             byte[] reply = new byte[4096];
             while (!stop) {
