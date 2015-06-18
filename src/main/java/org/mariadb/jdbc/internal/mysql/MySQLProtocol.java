@@ -64,7 +64,7 @@ import org.mariadb.jdbc.internal.common.packet.commands.StreamedQueryPacket;
 import org.mariadb.jdbc.internal.common.query.MySQLQuery;
 import org.mariadb.jdbc.internal.common.query.Query;
 import org.mariadb.jdbc.internal.common.queryresults.*;
-import org.mariadb.jdbc.internal.mysql.listener.Listener;
+import org.mariadb.jdbc.internal.mysql.listener.FailoverListener;
 import org.mariadb.jdbc.internal.mysql.listener.SearchFilter;
 import org.mariadb.jdbc.internal.mysql.packet.MySQLGreetingReadPacket;
 import org.mariadb.jdbc.internal.mysql.packet.commands.*;
@@ -84,7 +84,6 @@ import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.sql.Connection;
-import java.sql.SQLException;
 import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -154,7 +153,7 @@ class MyX509TrustManager implements X509TrustManager {
 }
 
 public class MySQLProtocol implements Protocol {
-    protected final static Logger log = Logger.getLogger(MySQLProtocol.class.getName());
+    private final static Logger log = Logger.getLogger(MySQLProtocol.class.getName());
     private boolean connected = false;
     protected Socket socket;
     protected PacketOutputStream writer;
@@ -659,7 +658,7 @@ public class MySQLProtocol implements Protocol {
      * @param searchFilter
      * @throws QueryException
      */
-    public void loop(Listener listener, List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
+    public void loop(FailoverListener listener, List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
         if (log.isLoggable(Level.FINE)) {
             log.fine("searching for master, address:"+addresses+" blacklist:"+blacklist.keySet());
         }
@@ -673,7 +672,7 @@ public class MySQLProtocol implements Protocol {
     }
 
 
-    private boolean searchRandomProtocol(Protocol protocol, Listener listener, final List<HostAddress> addresses, Map<HostAddress, Long> blacklist) throws QueryException {
+    private boolean searchRandomProtocol(Protocol protocol, FailoverListener listener, final List<HostAddress> addresses, Map<HostAddress, Long> blacklist) throws QueryException {
         List<HostAddress> searchAddresses = new ArrayList<HostAddress>(addresses);
         if (blacklist!=null) searchAddresses.removeAll(blacklist.keySet());
         Random rand = new Random();
@@ -685,19 +684,14 @@ public class MySQLProtocol implements Protocol {
             protocol.setHostAddress(searchAddresses.get(index));
             searchAddresses.remove(index);
             try {
-                System.out.println("trying to connect to " + protocol.getHostAddress());
-                protocol.connect(protocol.getHostAddress().host, protocol.getHostAddress().port);
-                System.out.println("connected to " + protocol.getHostAddress());
+                log.fine("trying to connect to " + protocol.getHostAddress());
+                protocol.connect();
+                log.fine("connected to " + protocol.getHostAddress());
                 listener.foundActiveMaster(protocol);
                 return true;
             } catch (QueryException e ) {
                 if (blacklist!=null)blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
-                System.out.println("Could not connect to " + currentHost + " searching for master, error:" + e.getMessage());
                 log.info("Could not connect to " + currentHost + " searching for master, error:" + e.getMessage());
-            } catch (IOException e ) {
-                if (blacklist!=null)blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
-                System.out.println("Could not connect to " + currentHost + " searching for master, error:" + e.getMessage());
-                log.info("Could not connect to " + protocol.getHostAddress() + " searching for master, error:" + e.getMessage());
             }
         }
         return false;
@@ -825,7 +819,7 @@ public class MySQLProtocol implements Protocol {
             final RawPacket rawPacket = packetFetcher.getRawPacket();
             ResultPacketFactory.createResultPacket(rawPacket);
         } catch (IOException e) {
-            throw new QueryException("Could not select database: " + e.getMessage(),
+            throw new QueryException("Could not select database '" + database +"' :"+ e.getMessage(),
                     -1,
                     SQLExceptionMapper.SQLStates.CONNECTION_EXCEPTION.getSqlState(),
                     e);
@@ -855,6 +849,7 @@ public class MySQLProtocol implements Protocol {
     }
     public void setHostAddress(HostAddress host) {
         this.currentHost = host;
+        this.readOnly = ParameterConstant.TYPE_SLAVE.equals(this.currentHost.type);
     }
     @Override
     public String getHost() {

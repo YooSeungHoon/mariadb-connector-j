@@ -50,7 +50,7 @@ OF SUCH DAMAGE.
 package org.mariadb.jdbc.internal.mysql;
 
 import org.mariadb.jdbc.internal.common.QueryException;
-import org.mariadb.jdbc.internal.mysql.listener.Listener;
+import org.mariadb.jdbc.internal.mysql.listener.FailoverListener;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
@@ -62,9 +62,9 @@ public class FailoverProxy implements InvocationHandler {
     private final static Logger log = Logger.getLogger(FailoverProxy.class.getName());
 
 
-    public Listener listener;
+    public FailoverListener listener;
 
-    public FailoverProxy(Protocol protocol, Listener listener) throws QueryException, SQLException{
+    public FailoverProxy(Protocol protocol, FailoverListener listener) throws QueryException, SQLException{
         protocol.setProxy(this);
         this.listener = listener;
         this.listener.setProxy(this);
@@ -89,13 +89,13 @@ public class FailoverProxy implements InvocationHandler {
             this.listener.preExecute();
         }
 
+        if ("setReadonly".equals(methodName)) {
+            this.listener.switchReadOnlyConnection((Boolean) args[0]);
+        }
         try {
-             Object returnObj = listener.invoke(method, args);
+            Object returnObj = listener.invoke(method, args);
             if ("close".equals(methodName)) {
-                this.listener.postClose();
-            }
-            if ("setReadonly".equals(methodName)) {
-                this.listener.switchReadOnlyConnection((Boolean) args[0]);
+                this.listener.preClose();
             }
             return returnObj;
         } catch (InvocationTargetException e) {

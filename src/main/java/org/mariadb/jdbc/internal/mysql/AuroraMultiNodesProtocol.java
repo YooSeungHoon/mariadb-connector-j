@@ -67,7 +67,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class AuroraMultiNodesProtocol extends ReplicationProtocol {
-    protected final static Logger log = Logger.getLogger(AuroraMultiNodesProtocol.class.getName());
+    private final static Logger log = Logger.getLogger(AuroraMultiNodesProtocol.class.getName());
 
     public AuroraMultiNodesProtocol(final JDBCUrl url) {
         super(url);
@@ -106,7 +106,7 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
         try {
 
             protocol.setHostAddress(probableMaster);
-            protocol.connect(protocol.currentHost.host, protocol.currentHost.port);
+            protocol.connect();
             if (searchFilter.isSearchForMaster() && protocol.isMasterConnection()) {
                 searchFilter.setSearchForMaster(false);
                 protocol.setMustBeMasterConnection(true);
@@ -117,9 +117,6 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
                 listener.foundActiveSecondary(protocol);
             }
         } catch (QueryException e ) {
-            blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
-            log.fine("Could not connect to " + protocol.currentHost + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
-        } catch (IOException e ) {
             blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
             log.fine("Could not connect to " + protocol.currentHost + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
         }

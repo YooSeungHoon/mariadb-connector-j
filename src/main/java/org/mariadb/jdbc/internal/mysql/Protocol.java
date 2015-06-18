@@ -54,7 +54,7 @@ import org.mariadb.jdbc.internal.common.QueryException;
 import org.mariadb.jdbc.internal.common.query.Query;
 import org.mariadb.jdbc.internal.common.queryresults.QueryResult;
 import org.mariadb.jdbc.internal.common.queryresults.StreamingSelectResult;
-import org.mariadb.jdbc.internal.mysql.listener.Listener;
+import org.mariadb.jdbc.internal.mysql.listener.FailoverListener;
 import org.mariadb.jdbc.internal.mysql.listener.SearchFilter;
 
 import java.io.IOException;
@@ -74,7 +74,7 @@ public interface Protocol {
 
     void connect() throws QueryException;
     void connect(String host, int port) throws QueryException, IOException;
-    void loop(Listener listener, List<HostAddress> addresses, Map<HostAddress, Long> connectionsBlacklist, SearchFilter searchFilter) throws QueryException;
+    void loop(FailoverListener listener, List<HostAddress> addresses, Map<HostAddress, Long> connectionsBlacklist, SearchFilter searchFilter) throws QueryException;
 
     JDBCUrl getJdbcUrl();
     boolean inTransaction();

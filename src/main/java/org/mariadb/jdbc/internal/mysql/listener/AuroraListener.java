@@ -102,7 +102,7 @@ public class AuroraListener extends ReplicationListener {
      * @throws SQLException
      */
     @Override
-    public synchronized void reconnectFailedConnection(boolean searchForMaster, boolean searchForSecondary, boolean initialConnection) throws QueryException, SQLException {
+    public void reconnectFailedConnection(boolean searchForMaster, boolean searchForSecondary, boolean initialConnection) throws QueryException, SQLException {
         log.info("reconnectFailedConnection : searchForMaster="+searchForMaster+" searchForSecondary="+searchForSecondary);
 
         List<HostAddress> loopAddress = new LinkedList(Arrays.asList(this.masterProtocol.getJdbcUrl().getHostAddresses()));
@@ -128,8 +128,7 @@ public class AuroraListener extends ReplicationListener {
     }
 
     @Override
-    public synchronized HandleErrorResult secondaryFail(Method method, Object[] args) throws Throwable {
-
+    public HandleErrorResult secondaryFail(Method method, Object[] args) throws Throwable {
         if (!isMasterHostFail()) {
             try {
                 this.masterProtocol.ping(); //check that master is on before switching to him

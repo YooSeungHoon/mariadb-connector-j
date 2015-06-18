@@ -67,7 +67,7 @@ import java.util.logging.Logger;
 /**
  * this class handle the operation when multiple hosts.
  */
-public class ReplicationListener extends BaseListener implements Listener {
+public class ReplicationListener extends BaseFailoverListener implements FailoverListener {
     private final static Logger log = Logger.getLogger(ReplicationListener.class.getName());
 
     protected ReplicationProtocol masterProtocol;
@@ -108,9 +108,9 @@ public class ReplicationListener extends BaseListener implements Listener {
         launchFailLoopIfNotlaunched(false);
     }
 
-    public void postClose()  throws SQLException {
+    public void preClose()  throws SQLException {
         if (scheduledPing != null) scheduledPing.cancel(true);
-        stopFailover();
+        if (scheduledFailover!=null)scheduledFailover.cancel(true);
         if (!this.masterProtocol.isClosed()) this.masterProtocol.close();
         if (!this.secondaryProtocol.isClosed()) this.secondaryProtocol.close();
     }
@@ -196,7 +196,7 @@ public class ReplicationListener extends BaseListener implements Listener {
      * method called when a new Master connection is found after a fallback
      * @param newMasterProtocol the new active connection
      */
-    public synchronized void foundActiveMaster(Protocol newMasterProtocol) {
+    public void foundActiveMaster(Protocol newMasterProtocol) {
         this.masterProtocol = (ReplicationProtocol) newMasterProtocol;
         if (!currentReadOnlyAsked.get()) {
             //actually on a secondary read-only because master was unknown.
@@ -223,7 +223,7 @@ public class ReplicationListener extends BaseListener implements Listener {
      * method called when a new secondary connection is found after a fallback
      * @param newSecondaryProtocol the new active connection
      */
-    public synchronized void foundActiveSecondary(ReplicationProtocol newSecondaryProtocol) {
+    public void foundActiveSecondary(ReplicationProtocol newSecondaryProtocol) {
         log.fine("found active secondary connection");
         this.secondaryProtocol = newSecondaryProtocol;
 
@@ -254,7 +254,7 @@ public class ReplicationListener extends BaseListener implements Listener {
      * @throws SQLException
      */
     @Override
-    public synchronized void switchReadOnlyConnection(Boolean mustBeReadOnly) throws QueryException, SQLException {
+    public void switchReadOnlyConnection(Boolean mustBeReadOnly) throws QueryException, SQLException {
         log.finest("switching to mustBeReadOnly = " + mustBeReadOnly + " mode");
 
         if (mustBeReadOnly != currentReadOnlyAsked.get() && currentProtocol.inTransaction()) {
@@ -270,6 +270,7 @@ public class ReplicationListener extends BaseListener implements Listener {
                             syncConnection(this.masterProtocol, this.secondaryProtocol);
                             currentProtocol = this.secondaryProtocol;
                             setSessionReadOnly(true);
+                            log.finest("current connection is now secondary");
                         }
                     }
                 }
@@ -281,6 +282,7 @@ public class ReplicationListener extends BaseListener implements Listener {
                             log.finest("switching to master connection");
                             syncConnection(this.secondaryProtocol, this.masterProtocol);
                             currentProtocol = this.masterProtocol;
+                            log.finest("current connection is now master");
                         }
                     } else {
                         if (autoReconnect) {
@@ -295,7 +297,6 @@ public class ReplicationListener extends BaseListener implements Listener {
                     }
                 }
             }
-            
         }
     }
 
@@ -332,7 +333,7 @@ public class ReplicationListener extends BaseListener implements Listener {
      * @return an object to indicate if the previous Exception must be thrown, or the object resulting if a failover worked
      * @throws Throwable
      */
-    public synchronized HandleErrorResult primaryFail(Method method, Object[] args) throws Throwable {
+    public HandleErrorResult primaryFail(Method method, Object[] args) throws Throwable {
         log.warning("SQL Primary node [" + this.masterProtocol.getHostAddress().toString() + "] connection fail ");
 
         //try to reconnect automatically only time before looping
@@ -371,7 +372,7 @@ public class ReplicationListener extends BaseListener implements Listener {
                 } else log.finest("ping failed on secondary");
             } catch (Exception e) {
                 if (setSecondaryHostFail()) addToBlacklist(this.secondaryProtocol.getHostAddress());
-                log.log(Level.FINEST, "ping on secondary failed",e);
+                log.log(Level.FINEST, "ping on secondary failed");
             }
         } else log.finest("secondary is already down");
 
@@ -387,15 +388,17 @@ public class ReplicationListener extends BaseListener implements Listener {
      * @return an object to indicate if the previous Exception must be thrown, or the object resulting if a failover worked
      * @throws Throwable
      */
-    public synchronized HandleErrorResult secondaryFail(Method method, Object[] args) throws Throwable {
+    public HandleErrorResult secondaryFail(Method method, Object[] args) throws Throwable {
         try {
             if(this.secondaryProtocol != null && this.secondaryProtocol.ping()) {
                 log.info("SQL Secondary node [" + this.secondaryProtocol.getHostAddress().toString() + "] connection re-established");
                 return relaunchOperation(method, args);
             }
         } catch (Exception e) {
+            log.finest("ping fail on secondary");
             if (setSecondaryHostFail()) addToBlacklist(this.secondaryProtocol.getHostAddress());
         }
+        log.finest("isMasterHostFail() " + isMasterHostFail());
 
         if (!isMasterHostFail()) {
             try {
@@ -409,6 +412,7 @@ public class ReplicationListener extends BaseListener implements Listener {
                     return relaunchOperation(method, args); //now that we are on master, relaunched result if the result was not crashing the master
                 }
             } catch (Exception e) {
+                log.finest("ping fail on master");
                 if (setMasterHostFail()) addToBlacklist(this.masterProtocol.getHostAddress());
             }
         }
@@ -427,6 +431,7 @@ public class ReplicationListener extends BaseListener implements Listener {
                 return new HandleErrorResult();
             }
         }
+
         launchFailLoopIfNotlaunched(true);
         return new HandleErrorResult();
     }
@@ -446,30 +451,36 @@ public class ReplicationListener extends BaseListener implements Listener {
 
         public void run() {
             //if (lastQueryTime + validConnectionTimeout < System.currentTimeMillis()) {
-                log.finest("PingLoop run");
-                boolean masterFail = false;
-                try {
-                    if (masterProtocol.ping()) {
-                        if (!masterProtocol.checkIfMaster()) {
-                            //the connection that was master isn't now
-                            masterFail = true;
-                        }
-                    }
-                } catch (QueryException e) {
-                    masterFail = true;
-                }
+            synchronized (listener) {
 
-                if (masterFail) {
-                    if (setMasterHostFail()) {
-                        currentConnectionAttempts = 0;
-                        try {
-                            listener.primaryFail(null, null);
-                        } catch (Throwable t) {
-                            //do nothing
+                log.finest("PingLoop run");
+                if (!isMasterHostFail()) {
+                    log.finest("PingLoop run, master not see failed");
+                    boolean masterFail = false;
+                    try {
+                        if (masterProtocol.ping()) {
+                            if (!masterProtocol.checkIfMaster()) {
+                                //the connection that was master isn't now
+                                masterFail = true;
+                            }
+                        }
+                    } catch (QueryException e) {
+                        log.finest("PingLoop ping to master error");
+                        masterFail = true;
+                    }
+
+                    if (masterFail) {
+                        log.finest("PingLoop master failed -> will loop to found it");
+                        if (setMasterHostFail()) {
+                            try {
+                                listener.primaryFail(null, null);
+                            } catch (Throwable t) {
+                                //do nothing
+                            }
                         }
                     }
                 }
-            //}
+            }
         }
     }
 }

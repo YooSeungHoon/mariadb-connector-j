@@ -50,112 +50,29 @@ OF SUCH DAMAGE.
 package org.mariadb.jdbc.internal.mysql.listener;
 
 import org.mariadb.jdbc.HostAddress;
-import org.mariadb.jdbc.internal.SQLExceptionMapper;
 import org.mariadb.jdbc.internal.common.QueryException;
+import org.mariadb.jdbc.internal.mysql.FailoverProxy;
 import org.mariadb.jdbc.internal.mysql.HandleErrorResult;
 import org.mariadb.jdbc.internal.mysql.Protocol;
-import org.mariadb.jdbc.internal.mysql.ReplicationProtocol;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.util.Map;
 
-
-public class FailoverListener extends BaseListener implements Listener {
-    private final static Logger log = Logger.getLogger(FailoverListener.class.getName());
-
-    public FailoverListener() { }
-
-    public void initializeConnection(Protocol protocol) throws QueryException, SQLException {
-        this.currentProtocol = protocol;
-        parseHAOptions(this.currentProtocol);
-        log.fine("launching initial loop");
-        this.currentProtocol.loop(this, protocol.getJdbcUrl().getHostAddresses(), blacklist, null);
-        log.fine("launching initial loop end");
-    }
-
-    public void preExecute() throws SQLException {
-        if (isMasterHostFail())queriesSinceFailover++;
-
-    }
-
-
-    public boolean shouldReconnect() {
-        return (isMasterHostFail() && currentConnectionAttempts < maxReconnects);
-    }
-
-    public void reconnectFailedConnection() throws QueryException, SQLException {
-        currentConnectionAttempts++;
-        log.fine("launching reconnectFailedConnection loop");
-        this.currentProtocol.loop(this, this.currentProtocol.getJdbcUrl().getHostAddresses(), blacklist, null);
-        log.fine("launching reconnectFailedConnection loop end");
-
-        //if no error, reset failover variables
-        resetMasterFailoverData();
-    }
-
-
-    public synchronized void switchReadOnlyConnection(Boolean readonly) throws QueryException, SQLException {
-        setSessionReadOnly(readonly);
-        this.currentProtocol.setReadonly(readonly);
-    }
-
-    public void postClose()  throws SQLException {
-        stopFailover();
-    }
-
-    public synchronized HandleErrorResult primaryFail(Method method, Object[] args) throws Throwable {
-        try {
-            if(this.currentProtocol != null && this.currentProtocol.ping()) {
-                log.info("SQL Primary node [" + this.currentProtocol.getHostAddress().toString() + "] connection re-established");
-                return relaunchOperation(method, args);
-            }
-        } catch (Exception e) {
-            if (setMasterHostFail()) addToBlacklist(this.currentProtocol.getHostAddress());
-        }
-
-        if (autoReconnect && shouldReconnect()) {
-            if (this.currentProtocol.getJdbcUrl().getHostAddresses().size() == 1) {
-                //if not first attempt to connect, wait for initialTimeout
-                if (currentConnectionAttempts > 0) {
-                    try {
-                        Thread.sleep(initialTimeout * 1000);
-                    } catch (InterruptedException e) {
-                    }
-                }
-            }
-
-            if (!this.currentProtocol.inTransaction()) {
-                //trying to reconnect transparently
-                reconnectFailedConnection();
-                log.finest("SQL Primary node [" + this.currentProtocol.getHostAddress().toString() + "] connection re-established");
-                return relaunchOperation(method, args);
-            }
-        }
-
-        launchFailLoopIfNotlaunched(true);
-        return new HandleErrorResult();
-    }
-
-
-    public synchronized HandleErrorResult secondaryFail(Method method, Object[] args) throws Throwable {
-        return new HandleErrorResult();
-    }
-
-    /**
-     * method called when a new Master connection is found after a fallback
-     * @param protocol the new active connection
-     */
-    public synchronized void foundActiveMaster(Protocol protocol) {
-        this.currentProtocol = protocol;
-        if (log.isLoggable(Level.INFO)) {
-            if (isMasterHostFail()) {
-                log.info("new primary node [" + currentProtocol.getHostAddress().toString() + "] connection established after " + (System.currentTimeMillis() - getMasterHostFailTimestamp()));
-            } else log.info("new primary node [" + currentProtocol.getHostAddress().toString() + "] connection established");
-        }
-        resetMasterFailoverData();
-    }
+public interface FailoverListener {
+    void setProxy(FailoverProxy proxy);
+    void initializeConnection(Protocol protocol) throws QueryException, SQLException;
+    void preExecute() throws SQLException;
+    void preClose() throws SQLException;
+    boolean shouldReconnect();
+    void reconnectFailedConnection() throws QueryException, SQLException;
+    void switchReadOnlyConnection(Boolean readonly) throws QueryException, SQLException ;
+    HandleErrorResult primaryFail(Method method, Object[] args) throws Throwable;
+    HandleErrorResult secondaryFail(Method method, Object[] args) throws Throwable;
+    void additionnalQuerySinceFailover();
+    Object invoke(Method method, Object[] args) throws Throwable;
+    HandleErrorResult handleFailover(Method method, Object[] args, boolean isQuery) throws Throwable;
+    void foundActiveMaster(Protocol protocol);
+    Map<HostAddress, Long> getBlacklist();
 }

@@ -69,8 +69,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
-public abstract class BaseListener implements Listener {
-    private final static Logger log = Logger.getLogger(BaseListener.class.getName());
+public abstract class BaseFailoverListener implements FailoverListener {
+    private final static Logger log = Logger.getLogger(BaseFailoverListener.class.getName());
 
 
     /* =========================== Failover  parameters ========================================= */
@@ -182,11 +182,11 @@ public abstract class BaseListener implements Listener {
     }
 
 
-    public synchronized HandleErrorResult handleFailover(Method method, Object[] args, boolean isQuery) throws Throwable {
-        log.fine("handleFailover");
+    public HandleErrorResult handleFailover(Method method, Object[] args, boolean isQuery) throws Throwable {
         if (currentProtocol.mustBeMasterConnection()) {
 
             if (masterHostFail.compareAndSet(false, true)) {
+                log.fine("Handle new Primary failover");
                 masterHostFailTimestamp = System.currentTimeMillis();
                 currentConnectionAttempts = 0;
                 addToBlacklist(currentProtocol.getHostAddress());
@@ -195,6 +195,7 @@ public abstract class BaseListener implements Listener {
             return primaryFail(method, args);
         } else {
             if (secondaryHostFail.compareAndSet(false, true)) {
+                log.fine("Handle new Secondary failover");
                 secondaryHostFailTimestamp = System.currentTimeMillis();
                 currentConnectionAttempts = 0;
                 addToBlacklist(currentProtocol.getHostAddress());
@@ -207,7 +208,7 @@ public abstract class BaseListener implements Listener {
      * After a failover, put the hostAddress in a static list so the other connection will not take this host in account for a time
      * @param hostAddress
      */
-    public synchronized void addToBlacklist(HostAddress hostAddress) {
+    public void addToBlacklist(HostAddress hostAddress) {
         if (hostAddress != null) {
             log.fine("host " + hostAddress+" added to blacklist");
             blacklist.put(hostAddress, System.currentTimeMillis());
@@ -217,7 +218,7 @@ public abstract class BaseListener implements Listener {
     /**
      * Permit to remove Host to blacklist after loadBalanceBlacklistTimeout seconds
      */
-    public synchronized void resetOldsBlackListHosts() {
+    public void resetOldsBlackListHosts() {
         long currentTime = System.currentTimeMillis();
         Set<HostAddress> currentBlackListkeys = blacklist.keySet();
         for (HostAddress blackListHost : currentBlackListkeys) {
@@ -247,44 +248,46 @@ public abstract class BaseListener implements Listener {
      * private class to permit a timer reconnection loop
      */
     protected class FailLoop implements Runnable {
-        Listener listener;
-        public FailLoop(Listener listener) {
+        FailoverListener listener;
+        public FailLoop(FailoverListener listener) {
             log.finest("launched FailLoop");
             this.listener = listener;
         }
 
         public void run() {
-            log.fine("failLoop , has a failover : "+(isMasterHostFail() || isSecondaryHostFail()));
-            if (isMasterHostFail() || isSecondaryHostFail()) {
-                log.fine("failLoop , listener.shouldReconnect() : "+listener.shouldReconnect());
-                if (listener.shouldReconnect()) {
-                    try {
-                        listener.reconnectFailedConnection();
-                        //reconnection done !
-                        stopFailover();
-                    } catch (Exception e) {
-                        log.finest("FailLoop search connection failed");
-                        //do nothing
+            synchronized (listener) {
+                log.fine("failLoop , has a failover : "+(isMasterHostFail() || isSecondaryHostFail()));
+                if (isMasterHostFail() || isSecondaryHostFail()) {
+                    log.fine("failLoop , listener.shouldReconnect() : "+listener.shouldReconnect());
+                    if (listener.shouldReconnect()) {
+                        try {
+                            listener.reconnectFailedConnection();
+                            //reconnection done !
+                            stopFailover();
+                        } catch (Exception e) {
+                            log.finest("FailLoop search connection failed");
+                            //do nothing
+                        }
+                    } else {
+                        if (currentConnectionAttempts > retriesAllDown) {
+                            log.fine("stopping failover after too many attemps ("+currentConnectionAttempts+")");
+                            stopFailover();
+                        }
                     }
                 } else {
-                    if (currentConnectionAttempts > retriesAllDown) {
-                        log.fine("stopping failover after too many attemps ("+currentConnectionAttempts+")");
-                        stopFailover();
-                    }
+                    stopFailover();
                 }
-            } else {
-                stopFailover();
             }
         }
     }
 
-    protected synchronized void setSessionReadOnly(boolean readOnly) throws QueryException {
+    protected void setSessionReadOnly(boolean readOnly) throws QueryException {
         if (this.currentProtocol.versionGreaterOrEqual(10, 0, 0)) {
             this.currentProtocol.executeQuery(new MySQLQuery("SET SESSION TRANSACTION "+(readOnly?"READ ONLY":"READ WRITE")));
         }
     }
 
-    protected synchronized void stopFailover() {
+    protected void stopFailover() {
         if (isLooping.compareAndSet(true, false)) {
             log.fine("stopping failover");
             if (scheduledFailover!=null)scheduledFailover.cancel(false);
@@ -381,7 +384,7 @@ public abstract class BaseListener implements Listener {
 
     public abstract void preExecute() throws SQLException;
 
-    public abstract void postClose() throws SQLException;
+    public abstract void preClose() throws SQLException;
 
     public abstract boolean shouldReconnect() ;
 

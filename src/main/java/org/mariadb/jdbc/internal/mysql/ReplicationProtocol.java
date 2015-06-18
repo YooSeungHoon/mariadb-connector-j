@@ -51,62 +51,24 @@ package org.mariadb.jdbc.internal.mysql;
 
 import org.mariadb.jdbc.HostAddress;
 import org.mariadb.jdbc.JDBCUrl;
-import org.mariadb.jdbc.internal.SQLExceptionMapper;
 import org.mariadb.jdbc.internal.common.QueryException;
-import org.mariadb.jdbc.internal.mysql.listener.Listener;
+import org.mariadb.jdbc.internal.mysql.listener.FailoverListener;
 import org.mariadb.jdbc.internal.mysql.listener.ReplicationListener;
 import org.mariadb.jdbc.internal.mysql.listener.SearchFilter;
 
-import java.io.IOException;
 import java.util.*;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class ReplicationProtocol extends MySQLProtocol {
+
+    private static Logger log = Logger.getLogger(ReplicationProtocol.class.getName());
 
     boolean masterConnection = false;
     boolean mustBeMasterConnection = false;
 
     public ReplicationProtocol(final JDBCUrl url) {
         super(url);
-    }
-
-    @Override
-    public void connect() throws QueryException {
-        if (!isClosed()) {
-            close();
-        }
-
-        // There could be several addresses given in the URL spec, try all of them, and throw exception if all hosts
-        // fail.
-        List<HostAddress> addrs = this.jdbcUrl.getHostAddresses();
-        for(int i = 0; i < addrs.size(); i++) {
-            currentHost = addrs.get(i);
-            try {
-                connect(currentHost.host, currentHost.port);
-                return;
-            } catch (IOException e) {
-                if (i == addrs.size() - 1) {
-                    throw new QueryException("Could not connect to " + HostAddress.toString(addrs) +
-                            " : " + e.getMessage(),  -1,  SQLExceptionMapper.SQLStates.CONNECTION_EXCEPTION.getSqlState(), e);
-                }
-            }
-        }
-    }
-
-
-
-    public void connectMaster(ReplicationListener listener) throws QueryException  {
-        //Master is considered the firstOne
-        HostAddress host = jdbcUrl.getHostAddresses().get(0);
-        try {
-            currentHost = host;
-            log.fine("trying to connect master " + currentHost);
-            connect(currentHost.host, currentHost.port);
-            listener.foundActiveMaster(this);
-            setMustBeMasterConnection(true);
-        } catch (IOException e) {
-            throw new QueryException("Could not connect to " + host + " : " + e.getMessage(), -1, SQLExceptionMapper.SQLStates.CONNECTION_EXCEPTION.getSqlState(), e);
-        }
     }
 
     /**
@@ -121,7 +83,7 @@ public class ReplicationProtocol extends MySQLProtocol {
      * @throws QueryException
      */
     @Override
-    public void loop(Listener listener, List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
+    public void loop(FailoverListener listener, List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
         if (log.isLoggable(Level.FINE)) {
             log.fine("searching for master:"+ searchFilter.isSearchForMaster()+ " replica:"+ searchFilter.isSearchForSlave()+ " address:"+addresses+" blacklist:"+blacklist.keySet());
         }
@@ -145,14 +107,16 @@ public class ReplicationProtocol extends MySQLProtocol {
         Random rand = new Random();
 
         while (!searchAddresses.isEmpty()) {
-
             int index = rand.nextInt(searchAddresses.size());
             protocol.setHostAddress(searchAddresses.get(index));
             searchAddresses.remove(index);
             try {
-
+                log.fine("host try " + protocol.getHostAddress() +" is compatible master:"+(protocol.isMasterConnection() && searchFilter.isSearchForMaster())+ " slave:"+(!protocol.isMasterConnection() && searchFilter.isSearchForSlave()));
                 if ((protocol.isMasterConnection() && searchFilter.isSearchForMaster()) || (!protocol.isMasterConnection() && searchFilter.isSearchForSlave())) {
-                    protocol.connect(protocol.getHostAddress().host, protocol.getHostAddress().port);
+
+                    log.fine("trying to connect to " + protocol.getHostAddress());
+                    protocol.connect();
+                    log.fine("connected to " + protocol.getHostAddress());
 
                     if (searchFilter.isSearchForMaster() && protocol.isMasterConnection()) {
 
@@ -175,9 +139,6 @@ public class ReplicationProtocol extends MySQLProtocol {
                 }
 
             } catch (QueryException e ) {
-                if (blacklist!=null)blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
-                log.fine("Could not connect to " + protocol.getHostAddress() + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
-            } catch (IOException e ) {
                 if (blacklist!=null)blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
                 log.fine("Could not connect to " + protocol.getHostAddress() + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
             }
