@@ -51,8 +51,8 @@ public class BaseTest {
             }
         }
 
-    	hostname = jdbcUrl.getHostname();
-    	port = jdbcUrl.getPort();
+    	hostname = jdbcUrl.getHostAddresses().get(0).host;
+    	port = jdbcUrl.getHostAddresses().get(0).port;
     	database = jdbcUrl.getDatabase();
     	username = jdbcUrl.getUsername();
     	password = jdbcUrl.getPassword();

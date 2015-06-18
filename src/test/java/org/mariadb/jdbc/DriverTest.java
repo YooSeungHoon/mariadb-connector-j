@@ -303,14 +303,14 @@ public class DriverTest extends BaseTest{
     @Test
     public void testConnectorJURL() {
         JDBCUrl url = JDBCUrl.parse("jdbc:mysql://localhost/test");
-        assertEquals("localhost", url.getHostname());
+        assertEquals("localhost", url.getHostAddresses().get(0).host);
         assertEquals("test", url.getDatabase());
-        assertEquals(3306,url.getPort());
+        assertEquals(3306,url.getHostAddresses().get(0).port);
 
         url = JDBCUrl.parse("jdbc:mysql://localhost:3307/test");
-        assertEquals("localhost", url.getHostname());
+        assertEquals("localhost", url.getHostAddresses().get(0).host);
         assertEquals("test", url.getDatabase());
-        assertEquals(3307,url.getPort());
+        assertEquals(3307,url.getHostAddresses().get(0).port);
 
     }
 

@@ -49,84 +49,130 @@ OF SUCH DAMAGE.
 
 package org.mariadb.jdbc;
 
+import org.mariadb.jdbc.internal.common.ParameterConstant;
+import org.mariadb.jdbc.internal.common.UrlHAMode;
+
+import java.util.List;
+import java.util.Properties;
+
+/**
+ * parse and verification of URL.
+ *
+ * the URL format has 2 Connection syntax :
+ *
+ * basic syntax :
+ * jdbc:(mysql|mariadb):[replication:|loadbalance:|aurora:]//<hostDescription>[,<hostDescription>]/<database>[?<key1>=<value1>&<key2>=<value2>...]
+ *
+ * hostDescription:
+ *      simple :
+ *          <host>:<portnumber>
+ *          (for example localhost:3306)
+ *      complex :
+ *           address=[(type=(master|slave))][(port=<portnumber>)](host=<host>)
+ *
+ *      type is by default master
+ *      port is by default 3306
+ *
+ * Some examples :
+ *      jdbc:mysql://localhost:3306/database?user=greg&password=pass
+ *      jdbc:mysql://address=(type=master)(host=master1),address=(port=3307)(type=slave)(host=slave1)/database?user=greg&password=pass
+ *
+ */
 public class JDBCUrl {
+
+
     private String username;
     private String password;
     private String database;
-    private HostAddress addresses[];
+    private Properties properties;
+    private List<HostAddress> addresses;
+    private UrlHAMode haMode;
 
-
-    private JDBCUrl( String username, String password, String database, HostAddress addresses[]) {
-        this.username = username;
-        this.password = password;
+    protected JDBCUrl(String database, List<HostAddress> addresses, Properties properties, UrlHAMode haMode) {
+        if (properties != null) {
+            if (properties.getProperty("user") != null) username=properties.getProperty("user");
+            if (properties.getProperty("password") != null) password=properties.getProperty("password");
+        }
         this.database = database;
         this.addresses = addresses;
+        this.properties = properties;
+        this.haMode = haMode;
+
+        if (haMode == UrlHAMode.AURORA) {
+            for (HostAddress hostAddress : addresses) hostAddress.type = null;
+        } else {
+            for (HostAddress hostAddress : addresses) {
+                if (hostAddress.type == null)hostAddress.type = ParameterConstant.TYPE_MASTER;
+            }
+        }
     }
 
     /*
-    Parse ConnectorJ compatible urls
-    jdbc:mysql://host:port/database
-	Example: jdbc:mysql://localhost:3306/test?user=root&password=passwd
-     */
-    private static JDBCUrl parseConnectorJUrl(String url) {
-        if (!url.startsWith("jdbc:mysql://")) {
-            return null;
+        Parse ConnectorJ compatible urls
+        jdbc:mysql://host:port/database
+        Example: jdbc:mysql://localhost:3306/test?user=root&password=passwd
+         */
+    private static JDBCUrl parseConnectorJUrl(String url, Properties properties) {
+        if (!url.startsWith("jdbc:mysql:")) return null;
+
+        String[] baseTokens = url.substring(0,url.indexOf("//") - 1).split(":");
+
+        //parse HA mode
+        UrlHAMode haMode = UrlHAMode.NONE;
+        if (baseTokens.length > 2) {
+            try {
+                haMode = UrlHAMode.valueOf(baseTokens[2].toUpperCase());
+            }catch (IllegalArgumentException i) {
+                throw new IllegalArgumentException("url parameter error '" + baseTokens[2] +"' is a unknown parameter in the url "+url);
+            }
         }
-        
-        url = url.substring(13);
-        
-        String hostname;
-        String database;
-        String user = "";
-        String password = "";
+
+
+        url = url.substring(url.indexOf("//") + 2);
         String[] tokens = url.split("/");
-        
-        hostname = tokens[0];
-        database = (tokens.length > 1) ? tokens[1] : null;
-        
-        if (database == null) {
-        	return new JDBCUrl("", "",  database, HostAddress.parse(hostname));
+        String hostAddressesString= tokens[0];
+        String additionalParameters = (tokens.length > 1) ? tokens[1] : null;
+
+        if (additionalParameters == null) {
+            return new JDBCUrl(null, HostAddress.parse(hostAddressesString), properties, haMode);
         }
-        
-        //check if there are parameters
-        if (database.indexOf('?') > -1)
-        {
-        	String[] credentials = database.substring(database.indexOf('?') + 1, database.length()).split("&");
-        	
-        	database = database.substring(0, database.indexOf('?'));
-        	
-        	for (int i = 0; i < credentials.length; i++)
-        	{
-        		if (credentials[i].startsWith("user="))
-        			user=credentials[i].substring(5);
-        		else if (credentials[i].startsWith("password="))
-        			password = credentials[i].substring(9);
-        	}
+        String database="";
+        int ind = additionalParameters.indexOf('?');
+        if (ind > -1) {
+            database = additionalParameters.substring(0, ind);
+            String urlParameters = additionalParameters.substring(ind + 1);
+            setUrlParameters(urlParameters, properties);
         }
-        
-        return new JDBCUrl(user, password,  database, HostAddress.parse(hostname));
+
+        return new JDBCUrl(database, HostAddress.parse(hostAddressesString), properties, haMode);
     }
 
     static boolean acceptsURL(String url) {
-    	return (url != null) &&
-    			(url.startsWith("jdbc:mariadb://") || url.startsWith("jdbc:mysql://")) &&
-    			!(url.startsWith("jdbc:mysql://address="));
-    	
+        return (url != null) &&
+                (url.startsWith("jdbc:mariadb://") || url.startsWith("jdbc:mysql://"));
+
     }
-    
 
     public static JDBCUrl parse(final String url) {
-        if(url.startsWith("jdbc:mysql://")) {
-            return parseConnectorJUrl(url);
-        }
-        String[] arr = new String[] {"jdbc:mysql:thin://","jdbc:mariadb://"};
-        for (String prefix : arr) {
-        	if (url.startsWith(prefix)) {
-        		return parseConnectorJUrl("jdbc:mysql://" + url.substring(prefix.length()));
-        	}
-        }
-        return null;
+        return parse(url, new Properties());
     }
+
+    public static JDBCUrl parse(final String url, Properties prop) {
+        if (url != null) {
+            if (prop == null) prop = new Properties();
+            if (url.startsWith("jdbc:mysql:")) {
+                return parseConnectorJUrl(url, prop);
+            }
+            String[] arr = new String[]{"jdbc:mysql:thin:", "jdbc:mariadb:"};
+            for (String prefix : arr) {
+                if (url.startsWith(prefix)) {
+                    return parseConnectorJUrl("jdbc:mysql:" + url.substring(prefix.length()), prop);
+                }
+            }
+        }
+        throw new IllegalArgumentException("Invalid connection URL url " + url);
+    }
+
     public String getUsername() {
         return username;
     }
@@ -135,29 +181,75 @@ public class JDBCUrl {
         return password;
     }
 
-    public String getHostname() {
-        return addresses[0].host;
-    }
-
-    public int getPort() {
-        return addresses[0].port;
-    }
-
     public String getDatabase() {
         return database;
     }
 
+    public List<HostAddress> getHostAddresses() {
+        return this.addresses;
+    }
 
-    public HostAddress[] getHostAddresses() {
-	return this.addresses;
+    public Properties getProperties() {
+        return properties;
+    }
+
+    protected void setUsername(String username) {
+        this.username = username;
+    }
+
+    protected void setPassword(String password) {
+        this.password = password;
+    }
+
+    protected void setDatabase(String database) {
+        this.database = database;
+    }
+
+    protected void setProperties(String urlParameters) {
+        setUrlParameters(urlParameters, this.properties);
+        if (properties.getProperty("user") != null)this.username = properties.getProperty("user");
+        if (properties.getProperty("password") != null)this.password = properties.getProperty("password");
     }
 
     public String toString() {
         String s = "jdbc:mysql://";
+        if (!haMode.equals(UrlHAMode.NONE)) s = "jdbc:mysql:"+haMode.toString().toLowerCase()+"://";
         if (addresses != null)
             s += HostAddress.toString(addresses);
         if (database != null)
             s += "/" + database;
-       return s;
+        return s;
     }
+
+    /**
+     * Adds the parsed parameter to the properties object.
+     *
+     * @param parameter a key=value pair
+     * @param info the properties object
+     */
+    private static void setUrlParameter(String parameter, Properties info) {
+        int pos = parameter.indexOf('=');
+        if (pos == -1)  {
+            throw new IllegalArgumentException("Invalid connection URL, expected key=value pairs, found " + parameter);
+        }
+        info.setProperty(parameter.substring(0, pos), parameter.substring(pos + 1));
+    }
+
+    /**
+     * Parses the parameters string and sets the corresponding properties in the properties object.
+     *
+     * @param urlParameters the parameters string
+     * @param info the properties object
+     */
+    private static void setUrlParameters(String urlParameters, Properties info) {
+        String [] parameters = urlParameters.split("&");
+        for(String parameter : parameters) {
+            setUrlParameter(parameter, info);
+        }
+    }
+
+    public UrlHAMode getHaMode() {
+        return haMode;
+    }
+
 }
