@@ -56,27 +56,34 @@ import java.util.List;
 import java.util.Properties;
 
 /**
- * parse and verification of URL.
+ * <p>parse and verification of URL.</p>
  *
- * the URL format has 2 Connection syntax :
+ * the URL format has 2 Connection syntax :<br>
  *
- * basic syntax :
- * jdbc:(mysql|mariadb):[replication:|loadbalance:|aurora:]//<hostDescription>[,<hostDescription>]/<database>[?<key1>=<value1>&<key2>=<value2>...]
- *
- * hostDescription:
- *      simple :
- *          <host>:<portnumber>
- *          (for example localhost:3306)
- *      complex :
- *           address=[(type=(master|slave))][(port=<portnumber>)](host=<host>)
- *
- *      type is by default master
- *      port is by default 3306
- *
- * Some examples :
- *      jdbc:mysql://localhost:3306/database?user=greg&password=pass
- *      jdbc:mysql://address=(type=master)(host=master1),address=(port=3307)(type=slave)(host=slave1)/database?user=greg&password=pass
- *
+ * <p>basic syntax :<br>
+ * {@code jdbc:(mysql|mariadb):[replication:|loadbalance:|aurora:]//<hostDescription>[,<hostDescription>]/[database>][?<key1>=<value1>[&<key2>=<value2>]] }
+ *</p>
+ * <p>
+ * hostDescription:<br>
+ *  - simple :<br>
+ *          {@code <host>:<portnumber>}<br>
+ *          (for example localhost:3306)<br><br>
+ *  - complex :<br>
+ *           {@code address=[(type=(master|slave))][(port=<portnumber>)](host=<host>)}<br>
+ *<br><br>
+ *      type is by default master<br>
+ *      port is by default 3306<br>
+ *</p>
+ * <p>
+ * host can be dns name, ipv4 or ipv6.<br>
+ *      in case of ipv6 and simple host description, the ip must be written inside bracket.<br>
+ *      exemple : {@code jdbc:mysql://[2001:0660:7401:0200:0000:0000:0edf:bdd7]:3306}<br>
+ *</p>
+ *<p>
+ * Some examples :<br>
+ *      {@code jdbc:mysql://localhost:3306/database?user=greg&password=pass}<br>
+ *      {@code jdbc:mysql://address=(type=master)(host=master1),address=(port=3307)(type=slave)(host=slave1)/database?user=greg&password=pass}<br>
+ *</p>
  */
 public class JDBCUrl {
 
@@ -115,7 +122,7 @@ public class JDBCUrl {
     private static JDBCUrl parseConnectorJUrl(String url, Properties properties) {
         if (!url.startsWith("jdbc:mysql:")) return null;
 
-        String[] baseTokens = url.substring(0,url.indexOf("//") - 1).split(":");
+        String[] baseTokens = url.substring(0,url.indexOf("//")).split(":");
 
         //parse HA mode
         UrlHAMode haMode = UrlHAMode.NONE;
@@ -142,7 +149,7 @@ public class JDBCUrl {
             database = additionalParameters.substring(0, ind);
             String urlParameters = additionalParameters.substring(ind + 1);
             setUrlParameters(urlParameters, properties);
-        }
+        } else database = additionalParameters;
 
         return new JDBCUrl(database, HostAddress.parse(hostAddressesString), properties, haMode);
     }

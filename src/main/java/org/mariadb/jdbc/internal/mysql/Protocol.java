@@ -60,6 +60,7 @@ import org.mariadb.jdbc.internal.mysql.listener.SearchFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.SocketException;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -94,7 +95,7 @@ public interface Protocol {
 
     String getServerVersion();
     Protocol getNewProtocol();
-    void setReadonly(boolean readOnly);
+    void setReadonly(boolean readOnly) throws SQLException;
     boolean isConnected();
     boolean getReadonly();
     boolean isMasterConnection();

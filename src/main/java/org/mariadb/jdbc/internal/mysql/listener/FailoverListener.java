@@ -67,7 +67,7 @@ public interface FailoverListener {
     void preClose() throws SQLException;
     boolean shouldReconnect();
     void reconnectFailedConnection() throws QueryException, SQLException;
-    void switchReadOnlyConnection(Boolean readonly) throws QueryException, SQLException ;
+    void switchReadOnlyConnection(Boolean readonly) throws SQLException ;
     HandleErrorResult primaryFail(Method method, Object[] args) throws Throwable;
     HandleErrorResult secondaryFail(Method method, Object[] args) throws Throwable;
     void additionnalQuerySinceFailover();

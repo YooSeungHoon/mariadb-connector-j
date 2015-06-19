@@ -66,9 +66,7 @@ public class HostAddress {
             if (ind != (s.length() -1) && s.charAt(ind + 1) == ':') {
                 result.port = Integer.parseInt(s.substring(ind+2));
             }
-        }
-
-        else if (s.contains(":")) {
+        } else if (s.contains(":")) {
         	  /* Parse host:port */
             String[] hostPort = s.split(":");
             result.host = hostPort[0];
@@ -88,7 +86,7 @@ public class HostAddress {
             String key = token[0].toLowerCase();
             String value = token[1].toLowerCase();
             if (key.equals("host")) {
-                result.host=value;
+                result.host=value.replace("[","").replace("]", "");
             } else if (key.equals("port")) {
                 result.port=Integer.parseInt(value);
             } else if (key.equals("type")) {
@@ -101,11 +99,14 @@ public class HostAddress {
     public static String toString(List<HostAddress> addrs) {
         String s="";
         for(int i=0; i < addrs.size(); i++) {
-            boolean isIPv6 = addrs.get(i).host != null && addrs.get(i).host.contains(":");
-            String host = (isIPv6)?("[" + addrs.get(i).host + "]"):addrs.get(i).host;
-            s += host + ":" + addrs.get(i).port;
-            if (i < addrs.size() -1)
-                s += ",";
+            if (addrs.get(i).type != null) {
+                s+="address=(host="+addrs.get(i).host+")(port="+addrs.get(i).port+")(type="+addrs.get(i).type+")";
+            } else {
+                boolean isIPv6 = addrs.get(i).host != null && addrs.get(i).host.contains(":");
+                String host = (isIPv6) ? ("[" + addrs.get(i).host + "]") : addrs.get(i).host;
+                s += host + ":" + addrs.get(i).port;
+            }
+            if (i < addrs.size() -1) s += ",";
         }
         return s;
     }
@@ -113,11 +114,14 @@ public class HostAddress {
     public static String toString(HostAddress[] addrs) {
         String s="";
         for(int i=0; i < addrs.length; i++) {
-            boolean isIPv6 = addrs[i].host != null && addrs[i].host.contains(":");
-            String host = (isIPv6)?("[" + addrs[i].host + "]"):addrs[i].host;
-            s += host + ":" + addrs[i].port;
-            if (i < addrs.length -1)
-                s += ",";
+            if (addrs[i].type != null) {
+                s+="address=(host="+addrs[i].host+")(port="+addrs[i].port+")(type="+addrs[i].type+")";
+            } else {
+                boolean isIPv6 = addrs[i].host != null && addrs[i].host.contains(":");
+                String host = (isIPv6)?("[" + addrs[i].host + "]"):addrs[i].host;
+                s += host + ":" + addrs[i].port;
+            }
+            if (i < addrs.length -1) s += ",";
         }
         return s;
     }

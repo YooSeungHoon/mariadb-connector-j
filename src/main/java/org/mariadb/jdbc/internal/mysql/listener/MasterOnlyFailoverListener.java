@@ -49,6 +49,7 @@ OF SUCH DAMAGE.
 
 package org.mariadb.jdbc.internal.mysql.listener;
 
+import org.mariadb.jdbc.internal.SQLExceptionMapper;
 import org.mariadb.jdbc.internal.common.QueryException;
 import org.mariadb.jdbc.internal.mysql.HandleErrorResult;
 import org.mariadb.jdbc.internal.mysql.Protocol;
@@ -93,9 +94,13 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
     }
 
 
-    public void switchReadOnlyConnection(Boolean readonly) throws QueryException, SQLException {
-        setSessionReadOnly(readonly);
-        this.currentProtocol.setReadonly(readonly);
+    public void switchReadOnlyConnection(Boolean readonly) throws SQLException {
+        try {
+            setSessionReadOnly(readonly);
+            this.currentProtocol.setReadonly(readonly);
+        } catch (QueryException e) {
+            SQLExceptionMapper.throwException(e, null, null);
+        }
     }
 
     public void preClose()  throws SQLException {

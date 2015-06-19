@@ -26,12 +26,15 @@ public class StreamingSelectResult extends SelectQueryResult {
 
         protocol.activeResult = this;
     }
-     /**
-     * create StreamingResultSet - precondition is that a result set packet has been read
+
+    /**
      *
      * @param packet the result set packet from the server
+     * @param packetFetcher packetfetcher
+     * @param protocol the current connection protocol class
      * @return a StreamingQueryResult
-     * @throws java.io.IOException when something goes wrong while reading/writing from the server
+     * @throws IOException when something goes wrong while reading/writing from the server
+     * @throws QueryException if there is an actual active result on the current connection
      */
     public static StreamingSelectResult createStreamingSelectResult(
             ResultSetPacket packet, PacketFetcher packetFetcher, MySQLProtocol protocol)

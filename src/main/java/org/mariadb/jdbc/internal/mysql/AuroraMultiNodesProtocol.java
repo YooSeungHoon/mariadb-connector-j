@@ -138,11 +138,10 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
             log.fine("searching for master:"+ searchFilter.isSearchForMaster()+ " replica:"+ searchFilter.isSearchForSlave()+ " addresses:"+addresses+" blacklist:"+blacklist.keySet());
         }
         List initialBlackList = new ArrayList(blacklist.keySet());
-        AuroraMultiNodesProtocol protocol = getNewProtocol();
-        searchRandomProtocol(protocol, listener, addresses, blacklist, searchFilter);
+        searchRandomProtocol(getNewProtocol(), listener, addresses, blacklist, searchFilter);
 
         if (searchFilter.isSearchForMaster() || searchFilter.isSearchForSlave()) {
-            searchRandomProtocol(protocol, listener, initialBlackList, null, searchFilter);
+            searchRandomProtocol(getNewProtocol(), listener, initialBlackList, null, searchFilter);
         }
         if (searchFilter.isSearchForMaster() || searchFilter.isSearchForSlave()) {
             if (searchFilter.isSearchForMaster()) throw new QueryException("No active connection found for master");

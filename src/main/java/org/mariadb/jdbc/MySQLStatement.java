@@ -262,7 +262,7 @@ public class MySQLStatement implements Statement {
      *
      * @param query the query
      * @return true if there was a result set, false otherwise.
-     * @throws SQLException
+     * @throws SQLException the error description
      */
     protected boolean execute(Query query) throws SQLException {
         synchronized (failoverListener) {
@@ -300,7 +300,7 @@ public class MySQLStatement implements Statement {
      * @param isRewritable are the queries of the same type to be agreggated
      * @param rewriteOffset offset of the parameter if query are similar
      * @return true if there was a result set, false otherwise.
-     * @throws SQLException
+     * @throws SQLException the error description
      */
     protected boolean execute(List<Query> queries, boolean isRewritable, int rewriteOffset) throws SQLException {
         //System.out.println(query);
@@ -1289,8 +1289,8 @@ public class MySQLStatement implements Statement {
 	 * @param statement the rewritten statement
 	 * @return an array of update counts containing one element for each command in the batch.
 	 *  The elements of the array are ordered according to the order in which commands were added to the batch.
-     * @param  size
-	 * @throws SQLException
+     * @param  size the number of batch statement
+	 * @throws SQLException if the connection has interruption
 	 */
 	protected int[] getUpdateCounts(Statement statement, int size) throws SQLException {
 		int[] result = new int[size];

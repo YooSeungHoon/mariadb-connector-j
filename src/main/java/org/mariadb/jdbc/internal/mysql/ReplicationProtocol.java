@@ -87,12 +87,11 @@ public class ReplicationProtocol extends MySQLProtocol {
         if (log.isLoggable(Level.FINE)) {
             log.fine("searching for master:"+ searchFilter.isSearchForMaster()+ " replica:"+ searchFilter.isSearchForSlave()+ " address:"+addresses+" blacklist:"+blacklist.keySet());
         }
-        ReplicationProtocol protocol = getNewProtocol();
         List initialBlackList = new ArrayList(blacklist.keySet());
-        searchRandomProtocol(protocol, (ReplicationListener) listener, addresses, blacklist, searchFilter);
+        searchRandomProtocol(getNewProtocol(), (ReplicationListener) listener, addresses, blacklist, searchFilter);
 
         if (searchFilter.isSearchForMaster() || searchFilter.isSearchForSlave()) {
-            searchRandomProtocol(protocol, (ReplicationListener)listener, initialBlackList, null, searchFilter);
+            searchRandomProtocol(getNewProtocol(), (ReplicationListener)listener, initialBlackList, null, searchFilter);
         }
         if (searchFilter.isSearchForMaster() || searchFilter.isSearchForSlave()) {
             if (searchFilter.isSearchForMaster()) throw new QueryException("No active connection found for master");

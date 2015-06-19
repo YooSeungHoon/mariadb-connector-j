@@ -50,6 +50,7 @@ OF SUCH DAMAGE.
 package org.mariadb.jdbc.internal.mysql.listener;
 
 import org.mariadb.jdbc.HostAddress;
+import org.mariadb.jdbc.internal.SQLExceptionMapper;
 import org.mariadb.jdbc.internal.common.QueryException;
 import org.mariadb.jdbc.internal.common.query.MySQLQuery;
 import org.mariadb.jdbc.internal.mysql.*;
@@ -171,8 +172,8 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
 
     /**
      * Loop to replace failed connections with valid ones.
-     * @throws QueryException
-     * @throws SQLException
+     * @throws QueryException if there is any error during reconnection
+     * @throws SQLException sqlException
      */
     public void reconnectFailedConnection() throws QueryException, SQLException {
         currentConnectionAttempts++;
@@ -181,7 +182,7 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
         reconnectFailedConnection(isMasterHostFail(), isSecondaryHostFail(), false);
     }
 
-    public void reconnectFailedConnection(boolean searchForMaster, boolean searchForSecondary, boolean initialConnection) throws QueryException, SQLException {
+    public synchronized void reconnectFailedConnection(boolean searchForMaster, boolean searchForSecondary, boolean initialConnection) throws QueryException, SQLException {
 
         resetOldsBlackListHosts();
         List<HostAddress> loopAddress = new LinkedList(this.masterProtocol.getJdbcUrl().getHostAddresses());
@@ -249,55 +250,59 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
 
     /**
      * switch to a read-only(secondary) or read and write connection(master)
-     * @param mustBeReadOnly the
-     * @throws QueryException
-     * @throws SQLException
+     * @param mustBeReadOnly the read-only status asked
+     * @throws SQLException if operation hasn't change protocol
      */
     @Override
-    public void switchReadOnlyConnection(Boolean mustBeReadOnly) throws QueryException, SQLException {
-        log.finest("switching to mustBeReadOnly = " + mustBeReadOnly + " mode");
+    public void switchReadOnlyConnection(Boolean mustBeReadOnly) throws SQLException {
+        try {
+            log.finest("switching to mustBeReadOnly = " + mustBeReadOnly + " mode");
 
-        if (mustBeReadOnly != currentReadOnlyAsked.get() && currentProtocol.inTransaction()) {
-            throw new QueryException("Trying to set to read-only mode during a transaction");
-        }
-        if (currentReadOnlyAsked.compareAndSet(!mustBeReadOnly, mustBeReadOnly)) {
-            if (currentReadOnlyAsked.get()) {
-                if (currentProtocol.isMasterConnection()) {
-                    //must change to replica connection
-                    if (!isSecondaryHostFail()) {
-                        synchronized (this) {
-                            log.finest("switching to secondary connection");
-                            syncConnection(this.masterProtocol, this.secondaryProtocol);
-                            currentProtocol = this.secondaryProtocol;
-                            setSessionReadOnly(true);
-                            log.finest("current connection is now secondary");
+            if (mustBeReadOnly != currentReadOnlyAsked.get() && currentProtocol.inTransaction()) {
+                throw new QueryException("Trying to set to read-only mode during a transaction");
+            }
+            if (currentReadOnlyAsked.compareAndSet(!mustBeReadOnly, mustBeReadOnly)) {
+                if (currentReadOnlyAsked.get()) {
+                    if (currentProtocol.isMasterConnection()) {
+                        //must change to replica connection
+                        if (!isSecondaryHostFail()) {
+                            synchronized (this) {
+                                log.finest("switching to secondary connection");
+                                syncConnection(this.masterProtocol, this.secondaryProtocol);
+                                currentProtocol = this.secondaryProtocol;
+                                setSessionReadOnly(true);
+                                log.finest("current connection is now secondary");
+                            }
                         }
                     }
-                }
-            } else {
-                if (!currentProtocol.isMasterConnection()) {
-                    //must change to master connection
-                    if (!isMasterHostFail()) {
-                        synchronized (this) {
-                            log.finest("switching to master connection");
-                            syncConnection(this.secondaryProtocol, this.masterProtocol);
-                            currentProtocol = this.masterProtocol;
-                            log.finest("current connection is now master");
+                } else {
+                    if (!currentProtocol.isMasterConnection()) {
+                        //must change to master connection
+                        if (!isMasterHostFail()) {
+                            synchronized (this) {
+                                log.finest("switching to master connection");
+                                syncConnection(this.secondaryProtocol, this.masterProtocol);
+                                currentProtocol = this.masterProtocol;
+                                log.finest("current connection is now master");
+                            }
+                        } else {
+                            if (autoReconnect) {
+                                try {
+                                    reconnectFailedConnection();
+                                    //connection established, no need to send Exception !
+                                    return;
+                                } catch (Exception e) { }
+                            }
+                            launchFailLoopIfNotlaunched(false);
+                            throw new QueryException("No primary host is actually connected");
                         }
-                    } else {
-                        if (autoReconnect) {
-                            try {
-                                reconnectFailedConnection();
-                                //connection established, no need to send Exception !
-                                return;
-                            } catch (Exception e) { }
-                        }
-                        launchFailLoopIfNotlaunched(false);
-                        throw new QueryException("No primary host is actually connected");
                     }
                 }
             }
+        } catch (QueryException e) {
+            SQLExceptionMapper.throwException(e, null, null);
         }
+
     }
 
     /**
@@ -328,8 +333,8 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
 
     /**
      * to handle the newly detected failover on the master connection
-     * @param method
-     * @param args
+     * @param method the initial called method
+     * @param args the initial args
      * @return an object to indicate if the previous Exception must be thrown, or the object resulting if a failover worked
      * @throws Throwable
      */
@@ -383,8 +388,8 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
 
     /**
      * to handle the newly detected failover on the secondary connection
-     * @param method
-     * @param args
+     * @param method the initial called method
+     * @param args the initial args
      * @return an object to indicate if the previous Exception must be thrown, or the object resulting if a failover worked
      * @throws Throwable
      */

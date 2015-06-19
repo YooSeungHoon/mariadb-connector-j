@@ -92,6 +92,7 @@ public class FailoverProxy implements InvocationHandler {
         if ("setReadonly".equals(methodName)) {
             this.listener.switchReadOnlyConnection((Boolean) args[0]);
         }
+
         try {
             Object returnObj = listener.invoke(method, args);
             if ("close".equals(methodName)) {

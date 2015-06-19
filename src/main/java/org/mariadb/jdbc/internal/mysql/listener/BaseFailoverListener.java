@@ -206,7 +206,7 @@ public abstract class BaseFailoverListener implements FailoverListener {
 
     /**
      * After a failover, put the hostAddress in a static list so the other connection will not take this host in account for a time
-     * @param hostAddress
+     * @param hostAddress the HostAddress to add to blacklist
      */
     public void addToBlacklist(HostAddress hostAddress) {
         if (hostAddress != null) {
@@ -355,8 +355,8 @@ public abstract class BaseFailoverListener implements FailoverListener {
      * @param method the methode accessed
      * @param args the parameters
      * @return An object that indicate the result or that the exception as to be thrown
-     * @throws IllegalAccessException
-     * @throws InvocationTargetException
+     * @throws IllegalAccessException if the initial call is not permit
+     * @throws InvocationTargetException if there is any error relaunching initial method
      */
     public HandleErrorResult relaunchOperation(Method method, Object[] args) throws IllegalAccessException, InvocationTargetException{
         HandleErrorResult handleErrorResult = new HandleErrorResult();
@@ -390,7 +390,7 @@ public abstract class BaseFailoverListener implements FailoverListener {
 
     public abstract void reconnectFailedConnection() throws QueryException, SQLException ;
 
-    public abstract void switchReadOnlyConnection(Boolean readonly) throws QueryException, SQLException;
+    public abstract void switchReadOnlyConnection(Boolean readonly) throws SQLException;
 
     public abstract HandleErrorResult primaryFail(Method method, Object[] args) throws Throwable ;
 

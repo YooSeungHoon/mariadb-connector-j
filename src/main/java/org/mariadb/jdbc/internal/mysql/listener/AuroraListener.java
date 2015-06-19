@@ -173,9 +173,9 @@ public class AuroraListener extends ReplicationListener {
     /**
      * Aurora replica doesn't have the master endpoint but the master instance name.
      * since the end point normally use the instance name like "instancename.some_ugly_string.region.rds.amazonaws.com", if an endpoint start with this instance name, it will be checked first.
-     *
-     * @param secondaryProtocol
-     * @param loopAddress
+     * @return the probable master address or null if not found
+     * @param secondaryProtocol the current secondary protocol
+     * @param loopAddress list of possible hosts
      */
     public HostAddress  searchByStartName(Protocol secondaryProtocol, List<HostAddress> loopAddress) {
         try {
