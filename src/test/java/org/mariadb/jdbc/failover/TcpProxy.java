@@ -32,6 +32,18 @@ public class TcpProxy {
         socket.kill();
     }
 
+    public void restart() {
+        Executors.newSingleThreadExecutor().execute(socket);
+        try {
+            Thread.sleep(10);
+        }catch(InterruptedException e) {}
+    }
+    public void assureProxyOk() {
+        if (socket.isClosed()) {
+            restart();
+        }
+    }
+
     public int getLocalPort() {
         return socket.getLocalPort();
     }

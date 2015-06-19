@@ -90,16 +90,32 @@ public class BaseMultiHostTest {
         }
 
     }
+    protected Connection getNewConnection(boolean proxy, boolean forceNewProxy) throws SQLException {
+        return getNewConnection(null, proxy, forceNewProxy);
+    }
+
+    protected Connection getNewConnection() throws SQLException {
+        return getNewConnection(null, false);
+    }
+
     protected Connection getNewConnection(boolean proxy) throws SQLException {
         return getNewConnection(null, proxy);
     }
 
     protected Connection getNewConnection(String additionnalConnectionData, boolean proxy) throws SQLException {
+        return getNewConnection(additionnalConnectionData, proxy, false);
+    }
+
+    protected Connection getNewConnection(String additionnalConnectionData, boolean proxy, boolean forceNewProxy) throws SQLException {
         if (proxy) {
+            String tmpProxyUrl = proxyUrl;
+            if (forceNewProxy) {
+                tmpProxyUrl = createProxies(initialUrl);
+            }
             if (additionnalConnectionData == null) {
-                return DriverManager.getConnection(proxyUrl);
+                return DriverManager.getConnection(tmpProxyUrl);
             } else {
-                return DriverManager.getConnection(proxyUrl + additionnalConnectionData);
+                return DriverManager.getConnection(tmpProxyUrl + additionnalConnectionData);
             }
         } else {
             if (additionnalConnectionData == null) {
@@ -120,12 +136,24 @@ public class BaseMultiHostTest {
             }
         }
     }
+
     public void stopProxy(int hostNumber, long millissecond) {
         log.fine("stopping host "+hostNumber);
         tcpProxies[hostNumber - 1].restart(millissecond);
     }
 
+    public void stopProxy(int hostNumber) {
+        log.fine("stopping host "+hostNumber);
+        tcpProxies[hostNumber - 1].stop();
+    }
 
+    public void restartProxy(int hostNumber) {
+        log.fine("restart host "+hostNumber);
+        if (hostNumber != -1) tcpProxies[hostNumber - 1].restart();
+    }
+    public void assureProxy() {
+        for (TcpProxy proxy : tcpProxies) proxy.assureProxyOk();
+    }
 
     //does the user have super privileges or not?
     public boolean hasSuperPrivilege(Connection connection, String testName) throws SQLException{
@@ -158,4 +186,24 @@ public class BaseMultiHostTest {
         getProtocol.setAccessible(true);
         return (Protocol) getProtocol.invoke(conn);
     }
+
+    public int getServerId(Connection connection) throws SQLException {
+        Statement st = connection.createStatement();
+        ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'server_id'");
+        rs.next();
+        return rs.getInt(2);
+    }
+
+    public String getGaleraServerName(Connection connection) throws SQLException {
+        Statement st = connection.createStatement();
+        ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'wsrep_node_name'");
+        rs.next();
+        return rs.getString(2);
+    }
+
+    public int getGaleraServerId(Connection connection) throws SQLException, NumberFormatException {
+        return Integer.parseInt(getGaleraServerName(connection).substring(6));
+    }
+
+
 }

@@ -24,11 +24,14 @@ public class TcpProxySocket implements Runnable {
         this.remoteport = remoteport;
         ss = new ServerSocket(0);
         this.localport = ss.getLocalPort();
-        ss.setReuseAddress(true);
     }
 
     public int getLocalPort() {
         return ss.getLocalPort();
+    }
+
+    public boolean isClosed() {
+        return ss.isClosed();
     }
 
     public void kill() {

@@ -4,14 +4,17 @@ import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
+import org.mariadb.jdbc.JDBCUrl;
 import org.mariadb.jdbc.internal.mysql.Protocol;
 
 import java.sql.Connection;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  *  test for galera
@@ -29,7 +32,7 @@ public class GaleraFailoverTest extends BaseMultiHostTest {
         proxyUrl = proxyGaleraUrl;
     }
 
-    /*@Test
+    @Test
     public void randomConnection() throws SQLException {
         Assume.assumeTrue(initialGaleraUrl != null);
         log.fine("randomConnection begin");
@@ -38,10 +41,7 @@ public class GaleraFailoverTest extends BaseMultiHostTest {
             Map<String, MutableInt> connectionMap = new HashMap<String, MutableInt>();
             for (int i = 0; i < 20; i++) {
                 connection = getNewConnection(false);
-                Statement stmt = connection.createStatement();
-                ResultSet rs = stmt.executeQuery("SHOW SESSION VARIABLES LIKE 'wsrep_node_name'");
-                rs.next();
-                String currentNodeName = rs.getString(2);
+                String currentNodeName = getGaleraServerName(connection);
                 log.fine("Server found " + currentNodeName);
                 MutableInt count = connectionMap.get(currentNodeName);
                 if (count == null) {
@@ -61,55 +61,99 @@ public class GaleraFailoverTest extends BaseMultiHostTest {
         } finally {
             log.fine("randomConnection done");
         }
-    }*/
+    }
 
     @Test
-    public void checkBlacklist() throws SQLException, InterruptedException {
+    public void checkStaticBlacklist() throws SQLException, InterruptedException {
         Assume.assumeTrue(initialGaleraUrl != null);
         Connection connection = null;
-        log.fine("checkBlacklist begin");
+        log.fine("checkStaticBlacklist begin");
         try {
             connection = getNewConnection(true);
             Statement st = connection.createStatement();
-            ResultSet rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'wsrep_node_name'");
-            rs.next();
-            String initialNodeName = rs.getString(2);
 
             //The node must be configure with specific names :
             //node x:wsrep_node_name = "galerax"
-            int currentProxy = Integer.parseInt(initialNodeName.substring(6));
-            stopProxy(currentProxy, 20000);
+            int firstServerId = getGaleraServerId(connection);
+
+            stopProxy(firstServerId);
 
             try{
                 st.execute("SELECT 1");
             } catch (SQLException e) {
-                //normal exception
+                //normal exception that permit to blacklist the failing connection.
             }
-            //wait for reconnection
-            Thread.sleep(15000);
 
-            rs = st.executeQuery("SHOW SESSION VARIABLES LIKE 'wsrep_node_name'");
-
-            rs.next();
-            String newNodeName = rs.getString(2);
-            Assert.assertFalse(newNodeName.equals(initialNodeName));
+            //check blacklist size
             try {
                 Protocol protocol = getProtocolFromConnection(connection);
                 Assert.assertTrue(protocol.getProxy().listener.getBlacklist().size() == 1);
+                //replace proxified HostAddress by not proxy one
+                JDBCUrl jdbcUrl = JDBCUrl.parse(initialUrl);
+                protocol.getProxy().listener.getBlacklist().put(jdbcUrl.getHostAddresses().get(firstServerId - 1), System.currentTimeMillis());
             } catch (Throwable e) {
                 Assert.fail();
             }
+
+            //add first Host to blacklist
+            try {
+                Protocol protocol = getProtocolFromConnection(connection);
+                protocol.getProxy().listener.getBlacklist().size();
+            } catch (Throwable e) {
+                Assert.fail();
+            }
+
+            ExecutorService exec= Executors.newFixedThreadPool(2);
+            //check blacklist shared
+            for (int i=0; i<20; i++) {
+                exec.execute(new CheckBlacklist(firstServerId));
+            }
+            //wait for thread endings
+            exec.shutdown();
+            try {
+                exec.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) { }
+
         } finally {
-            log.fine("checkBlacklist done");
-            Thread.sleep(10000);
+            log.fine("checkStaticBlacklist done");
+            assureProxy();
             if (connection != null) connection.close();
         }
-
     }
+
+    protected class CheckBlacklist implements Runnable {
+        int firstServerId;
+        public CheckBlacklist(int firstServerId) {
+            this.firstServerId = firstServerId;
+        }
+
+        public void run() {
+            Connection connection2 = null;
+            try {
+                connection2 = getNewConnection();
+                int otherServerId = getGaleraServerId(connection2);
+                log.fine("connected to server " + getGaleraServerName(connection2));
+                Assert.assertTrue(otherServerId != firstServerId);
+            } catch (SQLException e) {
+                e.printStackTrace();
+                Assert.fail();
+            } finally {
+                if (connection2 != null) {
+                    try {
+                        connection2.close();
+                    } catch (SQLException e) { e.printStackTrace(); }
+                }
+            }
+        }
+    }
+
+
 
     class MutableInt {
         int value = 1; // note that we start at 1 since we're counting
         public void increment () { ++value;      }
         public int  get ()       { return value; }
     }
+
+
 }
