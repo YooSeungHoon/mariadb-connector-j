@@ -95,7 +95,7 @@ public interface Protocol {
 
     String getServerVersion();
     Protocol getNewProtocol();
-    void setReadonly(boolean readOnly) throws SQLException;
+    void setReadonly(boolean readOnly) throws QueryException;
     boolean isConnected();
     boolean getReadonly();
     boolean isMasterConnection();

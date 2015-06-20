@@ -19,7 +19,6 @@ import java.util.concurrent.TimeUnit;
 
 public class ReplicationFailoverTest extends BaseMultiHostTest {
 
-
     @Before
     public void init() throws SQLException {
         initialUrl = initialReplicationUrl;
@@ -78,14 +77,15 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
         try {
             connection = getNewConnection(false);
             Statement stmt = connection.createStatement();
-            stmt.execute("drop table  if exists multinodeRead");
-            stmt.execute("create table multinodeRead (id int not null primary key auto_increment, test VARCHAR(10))");
+            stmt.execute("drop table  if exists multinodeReadSlave");
+            stmt.execute("create table multinodeReadSlave (id int not null primary key auto_increment, test VARCHAR(10))");
+
+            //wait slave replication
+            Thread.sleep(500);
 
             connection.setReadOnly(true);
-            //wait slave replication
-            Thread.sleep(100);
 
-            ResultSet rs = stmt.executeQuery("Select count(*) from multinodeRead");
+            ResultSet rs = stmt.executeQuery("Select count(*) from multinodeReadSlave");
             Assert.assertTrue(rs.next());
         } finally {
             log.fine("testMultiHostReadOnSlave done");
@@ -119,22 +119,33 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
 
 
     @Test
-    public void failoverSlaveToMasterFail() throws SQLException {
+    public void failoverSlaveToMasterFail() throws SQLException, InterruptedException{
         Assume.assumeTrue(initialReplicationUrl != null);
         Connection connection = null;
         log.fine("failoverSlaveToMaster begin");
-        int masterServerI1d=-1;
         try {
-            connection = getNewConnection(true);
-            masterServerI1d = getServerId(connection);
+            connection = getNewConnection("&secondsBeforeRetryMaster=1",true);
+            int masterServerId = getServerId(connection);
             connection.setReadOnly(true);
-            stopProxy(masterServerI1d);
+            int slaveServerId = getServerId(connection);
+            Assert.assertTrue(slaveServerId != masterServerId);
+            stopProxy(masterServerId);
             try {
                 //must not throw error until there is a query
                 connection.setReadOnly(false);
-            } catch (SQLException e) {
                 Assert.fail();
+            } catch (SQLException e) {
             }
+            int currentServerId = getServerId(connection);
+            Assert.assertTrue(slaveServerId == currentServerId);
+            Assert.assertTrue(connection.isReadOnly());
+            restartProxy(masterServerId);
+            Thread.sleep(2000);
+
+            //failover must have back uo to master
+            currentServerId = getServerId(connection);
+            Assert.assertTrue(masterServerId == currentServerId);
+            Assert.assertFalse(connection.isReadOnly());
         } finally {
             assureProxy();
             if (connection != null) connection.close();

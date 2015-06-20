@@ -283,7 +283,11 @@ public final class MySQLConnection implements Connection {
      */
     public void setReadOnly(final boolean readOnly) throws SQLException {
         synchronized (failoverListener) {
-            protocol.setReadonly(readOnly);
+            try {
+                protocol.setReadonly(readOnly);
+            } catch (QueryException e) {
+                SQLExceptionMapper.throwException(e, this, null);
+            }
         }
     }
 

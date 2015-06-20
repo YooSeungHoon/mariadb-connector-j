@@ -65,7 +65,7 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
 
     public MasterOnlyFailoverListener() { }
 
-    public void initializeConnection(Protocol protocol) throws QueryException, SQLException {
+    public void initializeConnection(Protocol protocol) throws QueryException {
         this.currentProtocol = protocol;
         parseHAOptions(this.currentProtocol);
         log.fine("launching initial loop");
@@ -83,7 +83,7 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
         return (isMasterHostFail() && currentConnectionAttempts < maxReconnects);
     }
 
-    public void reconnectFailedConnection() throws QueryException, SQLException {
+    public void reconnectFailedConnection() throws QueryException {
         currentConnectionAttempts++;
         log.fine("launching reconnectFailedConnection loop");
         this.currentProtocol.loop(this, this.currentProtocol.getJdbcUrl().getHostAddresses(), blacklist, null);
@@ -94,13 +94,9 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
     }
 
 
-    public void switchReadOnlyConnection(Boolean readonly) throws SQLException {
-        try {
-            setSessionReadOnly(readonly);
-            this.currentProtocol.setReadonly(readonly);
-        } catch (QueryException e) {
-            SQLExceptionMapper.throwException(e, null, null);
-        }
+    public void switchReadOnlyConnection(Boolean readonly) throws QueryException {
+        setSessionReadOnly(readonly);
+        this.currentProtocol.setReadonly(readonly);
     }
 
     public void preClose()  throws SQLException {
@@ -149,13 +145,25 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
      * method called when a new Master connection is found after a fallback
      * @param protocol the new active connection
      */
-    public void foundActiveMaster(Protocol protocol) {
-        this.currentProtocol = protocol;
+    public void foundActiveMaster(Protocol protocol) throws QueryException {
+        syncConnection(this.currentProtocol, protocol);
+        if (currentProtocol.getReadonly()) {
+            protocol.setReadonly(true);
+            currentProtocol = protocol;
+            try {
+                setSessionReadOnly(true);
+            } catch (QueryException e) {
+                SQLExceptionMapper.getSQLException("Error setting connection read-only after a failover", e);
+            }
+        } else currentProtocol = protocol;
+
         if (log.isLoggable(Level.INFO)) {
             if (isMasterHostFail()) {
                 log.info("new primary node [" + currentProtocol.getHostAddress().toString() + "] connection established after " + (System.currentTimeMillis() - getMasterHostFailTimestamp()));
             } else log.info("new primary node [" + currentProtocol.getHostAddress().toString() + "] connection established");
         }
+
         resetMasterFailoverData();
+
     }
 }

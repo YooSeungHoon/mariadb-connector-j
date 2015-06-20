@@ -62,17 +62,18 @@ import java.util.Map;
 
 public interface FailoverListener {
     void setProxy(FailoverProxy proxy);
-    void initializeConnection(Protocol protocol) throws QueryException, SQLException;
+    void initializeConnection(Protocol protocol) throws QueryException;
     void preExecute() throws SQLException;
     void preClose() throws SQLException;
     boolean shouldReconnect();
-    void reconnectFailedConnection() throws QueryException, SQLException;
-    void switchReadOnlyConnection(Boolean readonly) throws SQLException ;
+    void reconnectFailedConnection() throws QueryException;
+    void switchReadOnlyConnection(Boolean readonly) throws QueryException ;
     HandleErrorResult primaryFail(Method method, Object[] args) throws Throwable;
     HandleErrorResult secondaryFail(Method method, Object[] args) throws Throwable;
     void additionnalQuerySinceFailover();
     Object invoke(Method method, Object[] args) throws Throwable;
     HandleErrorResult handleFailover(Method method, Object[] args, boolean isQuery) throws Throwable;
-    void foundActiveMaster(Protocol protocol);
+    void foundActiveMaster(Protocol protocol) throws QueryException;
     Map<HostAddress, Long> getBlacklist();
+    void syncConnection(Protocol from, Protocol to) throws QueryException;
 }

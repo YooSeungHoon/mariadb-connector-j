@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
  *  exemple mvn test  -DdbUrl=jdbc:mysql://localhost:3306,localhost:3307/test?user=root
  */
 public class GaleraFailoverTest extends BaseMultiHostTest {
-    
+
     @Before
     public void init() throws SQLException {
         initialUrl = initialGaleraUrl;
@@ -156,4 +156,83 @@ public class GaleraFailoverTest extends BaseMultiHostTest {
     }
 
 
+    @Test
+    public void testMultiHostWriteOnMaster() throws SQLException {
+        Assume.assumeTrue(initialGaleraUrl != null);
+        Connection connection = null;
+        log.fine("testMultiHostWriteOnMaster begin");
+        try {
+            connection = getNewConnection();
+            Statement stmt = connection.createStatement();
+            stmt.execute("drop table  if exists multinode");
+            stmt.execute("create table multinode (id int not null primary key auto_increment, test VARCHAR(10))");
+            log.fine("testMultiHostWriteOnMaster OK");
+        } finally {
+            log.fine("testMultiHostWriteOnMaster done");
+            if (connection != null) connection.close();
+        }
+    }
+
+    @Test
+    public void testMultiHostWriteOnSlave() throws SQLException {
+        Assume.assumeTrue(initialGaleraUrl != null);
+        Connection connection = null;
+        log.fine("testMultiHostWriteOnSlave begin");
+        try {
+            connection = getNewConnection();
+            if (!requireMinimumVersion(connection, 10, 0)) {
+                //on version > 10 use SESSION READ-ONLY, before no control
+                Assume.assumeTrue(false);
+            }
+            String masterServerName = getGaleraServerName(connection);
+            connection.setReadOnly(true);
+
+            Assert.assertTrue(masterServerName.equals(getGaleraServerName(connection)));
+
+            Statement stmt = connection.createStatement();
+            Assert.assertTrue(connection.isReadOnly());
+            try {
+                stmt.execute("drop table  if exists multinode4");
+                log.severe("ERROR - > must not be able to write when read only set");
+                Assert.fail();
+            } catch (SQLException e) { }
+        } finally {
+            log.fine("testMultiHostWriteOnMaster done");
+            if (connection != null) connection.close();
+        }
+    }
+
+    @Test
+    public void testTimeToReconnectFailover() throws SQLException, InterruptedException {
+        Assume.assumeTrue(initialGaleraUrl != null);
+        Connection connection = null;
+        log.fine("testTimeToReconnectFailover begin");
+        int masterServerId = -1;
+        try {
+            connection = getNewConnection("&secondsBeforeRetryMaster=1",true);
+            connection.setReadOnly(true);
+            masterServerId = getGaleraServerId(connection);
+
+            stopProxy(masterServerId);
+            try {
+                connection.createStatement().execute("SELECT 1");
+                Assert.fail();
+            } catch (SQLException e) {
+                //normal error
+            }
+            //give time to reconnect
+            Thread.sleep(5000);
+
+            connection.createStatement().execute("SELECT 1");
+
+            int newServerId = getServerId(connection);
+
+            Assert.assertTrue(newServerId != masterServerId);
+            Assert.assertTrue(connection.isReadOnly());
+        } finally {
+            assureProxy();
+            if (connection != null) connection.close();
+            log.fine("testTimeToReconnectFailover done");
+        }
+    }
 }

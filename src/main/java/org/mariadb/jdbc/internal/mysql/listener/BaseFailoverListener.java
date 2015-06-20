@@ -50,6 +50,7 @@ OF SUCH DAMAGE.
 */
 
 import org.mariadb.jdbc.HostAddress;
+import org.mariadb.jdbc.internal.SQLExceptionMapper;
 import org.mariadb.jdbc.internal.common.QueryException;
 import org.mariadb.jdbc.internal.common.query.MySQLQuery;
 import org.mariadb.jdbc.internal.common.query.Query;
@@ -61,6 +62,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executors;
@@ -220,7 +222,7 @@ public abstract class BaseFailoverListener implements FailoverListener {
      */
     public void resetOldsBlackListHosts() {
         long currentTime = System.currentTimeMillis();
-        Set<HostAddress> currentBlackListkeys = blacklist.keySet();
+        Set<HostAddress> currentBlackListkeys = new HashSet<HostAddress>(blacklist.keySet());
         for (HostAddress blackListHost : currentBlackListkeys) {
             if (blacklist.get(blackListHost) < currentTime - loadBalanceBlacklistTimeout * 1000) blacklist.remove(blackListHost);
         }
@@ -380,7 +382,31 @@ public abstract class BaseFailoverListener implements FailoverListener {
         return  method.invoke(currentProtocol, args);
     }
 
-    public abstract void initializeConnection(Protocol protocol) throws QueryException, SQLException;
+
+    /**
+     * when switching between 2 connections, report existing connection parameter to the new used connection
+     * @param from used connection
+     * @param to will-be-current connection
+     * @throws QueryException
+     * @throws SQLException
+     */
+    public void syncConnection(Protocol from, Protocol to) throws QueryException {
+        to.setMaxAllowedPacket(from.getMaxAllowedPacket());
+        to.setMaxRows(from.getMaxRows());
+        to.setInternalMaxRows(from.getMaxRows());
+        if (from.getTransactionIsolationLevel() != 0) {
+            to.setTransactionIsolation(from.getTransactionIsolationLevel());
+        }
+        if (from.getDatabase() != null && !"".equals(from.getDatabase())) {
+            to.selectDB(from.getDatabase());
+        }
+        if (from.getAutocommit() != to.getAutocommit()) {
+            to.executeQuery(new MySQLQuery("set autocommit=" + (from.getAutocommit() ? "1" : "0")));
+        }
+    }
+
+
+    public abstract void initializeConnection(Protocol protocol) throws QueryException;
 
     public abstract void preExecute() throws SQLException;
 
@@ -388,9 +414,9 @@ public abstract class BaseFailoverListener implements FailoverListener {
 
     public abstract boolean shouldReconnect() ;
 
-    public abstract void reconnectFailedConnection() throws QueryException, SQLException ;
+    public abstract void reconnectFailedConnection() throws QueryException ;
 
-    public abstract void switchReadOnlyConnection(Boolean readonly) throws SQLException;
+    public abstract void switchReadOnlyConnection(Boolean readonly) throws QueryException;
 
     public abstract HandleErrorResult primaryFail(Method method, Object[] args) throws Throwable ;
 

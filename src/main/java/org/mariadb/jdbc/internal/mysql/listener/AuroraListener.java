@@ -75,7 +75,7 @@ public class AuroraListener extends ReplicationListener {
     }
 
     @Override
-    public void initializeConnection(Protocol protocol) throws QueryException, SQLException {
+    public void initializeConnection(Protocol protocol) throws QueryException {
         this.masterProtocol = (AuroraMultiNodesProtocol)protocol;
         this.currentProtocol = this.masterProtocol;
         parseHAOptions(protocol);
@@ -84,9 +84,6 @@ public class AuroraListener extends ReplicationListener {
         try {
             reconnectFailedConnection(true, true, true);
         } catch (QueryException e) {
-            checkInitialConnection();
-            throw e;
-        } catch (SQLException e) {
             checkInitialConnection();
             throw e;
         }
@@ -99,10 +96,9 @@ public class AuroraListener extends ReplicationListener {
      * By default, search for the host not down, and recheck the down one after if not found valid connections.
      *
      * @throws QueryException
-     * @throws SQLException
      */
     @Override
-    public void reconnectFailedConnection(boolean searchForMaster, boolean searchForSecondary, boolean initialConnection) throws QueryException, SQLException {
+    public void reconnectFailedConnection(boolean searchForMaster, boolean searchForSecondary, boolean initialConnection) throws QueryException {
         log.info("reconnectFailedConnection : searchForMaster="+searchForMaster+" searchForSecondary="+searchForSecondary);
 
         List<HostAddress> loopAddress = new LinkedList(Arrays.asList(this.masterProtocol.getJdbcUrl().getHostAddresses()));

@@ -81,7 +81,7 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
         secondaryProtocol = null;
     }
 
-    public void initializeConnection(Protocol protocol) throws QueryException, SQLException {
+    public void initializeConnection(Protocol protocol) throws QueryException {
         this.masterProtocol = (ReplicationProtocol)protocol;
         this.currentProtocol = this.masterProtocol;
         parseHAOptions(protocol);
@@ -91,9 +91,6 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
         try {
             reconnectFailedConnection(true, true, true);
         } catch (QueryException e) {
-            checkInitialConnection();
-            throw e;
-        } catch (SQLException e) {
             checkInitialConnection();
             throw e;
         }
@@ -175,14 +172,14 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
      * @throws QueryException if there is any error during reconnection
      * @throws SQLException sqlException
      */
-    public void reconnectFailedConnection() throws QueryException, SQLException {
+    public void reconnectFailedConnection() throws QueryException {
         currentConnectionAttempts++;
         lastRetry = System.currentTimeMillis();
         if (currentConnectionAttempts >= retriesAllDown) throw new QueryException("Too many reconnection attempts ("+retriesAllDown+")");
         reconnectFailedConnection(isMasterHostFail(), isSecondaryHostFail(), false);
     }
 
-    public synchronized void reconnectFailedConnection(boolean searchForMaster, boolean searchForSecondary, boolean initialConnection) throws QueryException, SQLException {
+    public synchronized void reconnectFailedConnection(boolean searchForMaster, boolean searchForSecondary, boolean initialConnection) throws QueryException {
 
         resetOldsBlackListHosts();
         List<HostAddress> loopAddress = new LinkedList(this.masterProtocol.getJdbcUrl().getHostAddresses());
@@ -254,82 +251,65 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
      * @throws SQLException if operation hasn't change protocol
      */
     @Override
-    public void switchReadOnlyConnection(Boolean mustBeReadOnly) throws SQLException {
-        try {
-            log.finest("switching to mustBeReadOnly = " + mustBeReadOnly + " mode");
+    public void switchReadOnlyConnection(Boolean mustBeReadOnly) throws QueryException {
+        log.finest("switching to mustBeReadOnly = " + mustBeReadOnly + " mode");
 
-            if (mustBeReadOnly != currentReadOnlyAsked.get() && currentProtocol.inTransaction()) {
-                throw new QueryException("Trying to set to read-only mode during a transaction");
-            }
-            if (currentReadOnlyAsked.compareAndSet(!mustBeReadOnly, mustBeReadOnly)) {
-                if (currentReadOnlyAsked.get()) {
-                    if (currentProtocol.isMasterConnection()) {
-                        //must change to replica connection
-                        if (!isSecondaryHostFail()) {
-                            synchronized (this) {
-                                log.finest("switching to secondary connection");
-                                syncConnection(this.masterProtocol, this.secondaryProtocol);
-                                currentProtocol = this.secondaryProtocol;
-                                setSessionReadOnly(true);
-                                log.finest("current connection is now secondary");
+        if (mustBeReadOnly != currentReadOnlyAsked.get() && currentProtocol.inTransaction()) {
+            throw new QueryException("Trying to set to read-only mode during a transaction");
+        }
+        if (currentReadOnlyAsked.compareAndSet(!mustBeReadOnly, mustBeReadOnly)) {
+            if (currentReadOnlyAsked.get()) {
+                if (currentProtocol.isMasterConnection()) {
+                    //must change to replica connection
+                    if (!isSecondaryHostFail()) {
+                        try {
+                            log.finest("switching to secondary connection");
+                            syncConnection(this.masterProtocol, this.secondaryProtocol);
+                            currentProtocol = this.secondaryProtocol;
+                            setSessionReadOnly(true);
+                            log.finest("current connection is now secondary");
+                            return;
+                        } catch (QueryException e) {
+                            if (setSecondaryHostFail()) {
+                                addToBlacklist(secondaryProtocol.getHostAddress());
                             }
                         }
                     }
-                } else {
-                    if (!currentProtocol.isMasterConnection()) {
-                        //must change to master connection
-                        if (!isMasterHostFail()) {
-                            synchronized (this) {
-                                log.finest("switching to master connection");
-                                syncConnection(this.secondaryProtocol, this.masterProtocol);
-                                currentProtocol = this.masterProtocol;
-                                log.finest("current connection is now master");
+                    launchFailLoopIfNotlaunched(false);
+                    throw new QueryException("master " + masterProtocol.getHostAddress()+" connection failed");
+                }
+            } else {
+                if (!currentProtocol.isMasterConnection()) {
+                    //must change to master connection
+                    if (!isMasterHostFail()) {
+                        try {
+                            log.finest("switching to master connection");
+                            syncConnection(this.secondaryProtocol, this.masterProtocol);
+                            currentProtocol = this.masterProtocol;
+                            log.finest("current connection is now master");
+                            return;
+                        } catch (QueryException e) {
+                            if (setMasterHostFail()) {
+                                addToBlacklist(masterProtocol.getHostAddress());
                             }
-                        } else {
-                            if (autoReconnect) {
-                                try {
-                                    reconnectFailedConnection();
-                                    //connection established, no need to send Exception !
-                                    return;
-                                } catch (Exception e) { }
-                            }
-                            launchFailLoopIfNotlaunched(false);
-                            throw new QueryException("No primary host is actually connected");
                         }
                     }
+                    if (autoReconnect) {
+                        reconnectFailedConnection();
+                        //connection established, no need to send Exception !
+                        log.finest("switching to master connection");
+                        syncConnection(this.secondaryProtocol, this.masterProtocol);
+                        currentProtocol = this.masterProtocol;
+                        log.finest("current connection is now master");
+                        return;
+                    }
+                    launchFailLoopIfNotlaunched(false);
+                    throw new QueryException("master " + masterProtocol.getHostAddress()+" connection failed");
                 }
             }
-        } catch (QueryException e) {
-            SQLExceptionMapper.throwException(e, null, null);
-        }
-
-    }
-
-    /**
-     * when switching between 2 connections, report existing connection parameter to the new used connection
-     * @param from used connection
-     * @param to will-be-current connection
-     * @throws QueryException
-     * @throws SQLException
-     */
-    protected void syncConnection(Protocol from, Protocol to) throws QueryException, SQLException {
-        to.setMaxAllowedPacket(from.getMaxAllowedPacket());
-        to.setMaxRows(from.getMaxRows());
-        to.setInternalMaxRows(from.getMaxRows());
-        if (from.getTransactionIsolationLevel() != 0) {
-            to.setTransactionIsolation(from.getTransactionIsolationLevel());
-        }
-        try {
-            if (from.getDatabase() != null && !"".equals(from.getDatabase())) {
-                    to.selectDB(from.getDatabase());
-            }
-            if (from.getAutocommit() != to.getAutocommit()) {
-                to.executeQuery(new MySQLQuery("set autocommit=" + (from.getAutocommit()?"1":"0")));
-            }
-        } catch (QueryException e) {
-            e.printStackTrace();
         }
     }
+
 
     /**
      * to handle the newly detected failover on the master connection
