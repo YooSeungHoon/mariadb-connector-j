@@ -50,6 +50,7 @@ OF SUCH DAMAGE.
 package org.mariadb.jdbc.internal.mysql.listener;
 
 import org.mariadb.jdbc.HostAddress;
+import org.mariadb.jdbc.JDBCUrl;
 import org.mariadb.jdbc.internal.SQLExceptionMapper;
 import org.mariadb.jdbc.internal.common.QueryException;
 import org.mariadb.jdbc.internal.common.query.MySQLQuery;
@@ -76,15 +77,14 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
     protected long lastQueryTime = 0;
     protected ScheduledFuture scheduledPing = null;
 
-    public ReplicationListener() {
+    public ReplicationListener(final JDBCUrl jdbcUrl) {
+        super(jdbcUrl);
         masterProtocol = null;
         secondaryProtocol = null;
     }
 
-    public void initializeConnection(Protocol protocol) throws QueryException {
-        this.masterProtocol = (ReplicationProtocol)protocol;
-        this.currentProtocol = this.masterProtocol;
-        parseHAOptions(protocol);
+    public void initializeConnection() throws QueryException {
+        parseHAOptions();
         //if (validConnectionTimeout != 0) scheduledPing = Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(new PingLoop(this), 1, 1, TimeUnit.SECONDS);
 
         if (validConnectionTimeout != 0) scheduledPing = Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(new PingLoop(this), validConnectionTimeout, validConnectionTimeout, TimeUnit.SECONDS);
@@ -109,8 +109,8 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
     public void preClose()  throws SQLException {
         if (scheduledPing != null) scheduledPing.cancel(true);
         if (scheduledFailover!=null)scheduledFailover.cancel(true);
-        if (!this.masterProtocol.isClosed()) this.masterProtocol.close();
-        if (!this.secondaryProtocol.isClosed()) this.secondaryProtocol.close();
+        if (masterProtocol != null && !this.masterProtocol.isClosed()) this.masterProtocol.close();
+        if (secondaryProtocol != null && !this.secondaryProtocol.isClosed()) this.secondaryProtocol.close();
     }
 
     @Override
@@ -182,11 +182,12 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
     public synchronized void reconnectFailedConnection(boolean searchForMaster, boolean searchForSecondary, boolean initialConnection) throws QueryException {
 
         resetOldsBlackListHosts();
-        List<HostAddress> loopAddress = new LinkedList(this.masterProtocol.getJdbcUrl().getHostAddresses());
+        List<HostAddress> loopAddress = new LinkedList(jdbcUrl.getHostAddresses());
         loopAddress.removeAll(blacklist.keySet());
 
         if (((searchForMaster && isMasterHostFail())|| (searchForSecondary && isSecondaryHostFail())) || initialConnection) {
-            this.masterProtocol.loop(this, loopAddress, blacklist, new SearchFilter(searchForMaster, searchForSecondary));
+
+            ReplicationProtocol.loop(this, loopAddress, blacklist, new SearchFilter(searchForMaster, searchForSecondary));
         }
     }
 
@@ -323,15 +324,15 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
 
         //try to reconnect automatically only time before looping
         try {
-            if(this.masterProtocol != null && this.masterProtocol.ping()) {
-                log.info("SQL Primary node [" + this.masterProtocol.getHostAddress().toString() + "] connection re-established");
+            if(masterProtocol != null && masterProtocol.ping()) {
+                log.info("SQL Primary node [" + masterProtocol.getHostAddress().toString() + "] connection re-established");
                 return relaunchOperation(method, args);
             }
         } catch (Exception e) {
-            if (setMasterHostFail()) addToBlacklist(this.masterProtocol.getHostAddress());
+            if (setMasterHostFail()) addToBlacklist(masterProtocol.getHostAddress());
         }
 
-        if (autoReconnect && !this.masterProtocol.inTransaction()) {
+        if (autoReconnect && masterProtocol != null && !masterProtocol.inTransaction()) {
             try {
                 reconnectFailedConnection();
                 log.finest("SQL Primary node [" + this.masterProtocol.getHostAddress().toString() + "] connection re-established");
@@ -346,7 +347,7 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
             try {
                 if(this.secondaryProtocol != null && this.secondaryProtocol.ping()) {
                     log.finest("switching to secondary connection");
-                    syncConnection(this.masterProtocol, this.secondaryProtocol);
+                    syncConnection(masterProtocol, this.secondaryProtocol);
                     currentProtocol = this.secondaryProtocol;
                     launchFailLoopIfNotlaunched(true);
                     try {
@@ -387,18 +388,18 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
 
         if (!isMasterHostFail()) {
             try {
-                if (this.masterProtocol !=null) {
+                if (masterProtocol !=null) {
                     this.masterProtocol.ping(); //check that master is on before switching to him
                     log.finest("switching to master connection");
-                    syncConnection(this.secondaryProtocol, this.masterProtocol);
-                    currentProtocol = this.masterProtocol;
+                    syncConnection(secondaryProtocol, masterProtocol);
+                    currentProtocol = masterProtocol;
 
                     launchFailLoopIfNotlaunched(true); //launch reconnection loop
                     return relaunchOperation(method, args); //now that we are on master, relaunched result if the result was not crashing the master
                 }
             } catch (Exception e) {
                 log.finest("ping fail on master");
-                if (setMasterHostFail()) addToBlacklist(this.masterProtocol.getHostAddress());
+                if (setMasterHostFail()) addToBlacklist(masterProtocol.getHostAddress());
             }
         }
 
@@ -443,7 +444,7 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
                     log.finest("PingLoop run, master not see failed");
                     boolean masterFail = false;
                     try {
-                        if (masterProtocol.ping()) {
+                        if (masterProtocol != null && masterProtocol.ping()) {
                             if (!masterProtocol.checkIfMaster()) {
                                 //the connection that was master isn't now
                                 masterFail = true;

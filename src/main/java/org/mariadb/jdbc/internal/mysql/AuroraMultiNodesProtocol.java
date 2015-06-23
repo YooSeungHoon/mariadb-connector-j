@@ -73,6 +73,10 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
         super(url);
     }
 
+    @Override
+    public boolean isMasterConnection() {
+        return this.masterConnection;
+    }
     /**
      * Aurora best way to check if a node is a master : is not in read-only mode
      * @return
@@ -98,11 +102,11 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
 
 
 
-    public void searchProbableMaster(AuroraListener listener, HostAddress probableMaster, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
+    public static void searchProbableMaster(AuroraListener listener, HostAddress probableMaster, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
         if (log.isLoggable(Level.FINE)) {
             log.fine("searching for master:"+ searchFilter.isSearchForMaster()+ " replica:"+ searchFilter.isSearchForSlave()+ " address:"+probableMaster+" blacklist:"+blacklist.keySet());
         }
-        AuroraMultiNodesProtocol protocol = getNewProtocol();
+        AuroraMultiNodesProtocol protocol = getNewProtocol(listener.getProxy(), listener.getJdbcUrl());
         try {
 
             protocol.setHostAddress(probableMaster);
@@ -133,15 +137,15 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
      * @param searchFilter
      * @throws QueryException
      */
-    public void loop(AuroraListener listener, List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
+    public static void loop(AuroraListener listener, List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
         if (log.isLoggable(Level.FINE)) {
             log.fine("searching for master:"+ searchFilter.isSearchForMaster()+ " replica:"+ searchFilter.isSearchForSlave()+ " addresses:"+addresses+" blacklist:"+blacklist.keySet());
         }
         List initialBlackList = new ArrayList(blacklist.keySet());
-        searchRandomProtocol(getNewProtocol(), listener, addresses, blacklist, searchFilter);
+        searchRandomProtocol(getNewProtocol(listener.getProxy(), listener.getJdbcUrl()), listener, addresses, blacklist, searchFilter);
 
         if (searchFilter.isSearchForMaster() || searchFilter.isSearchForSlave()) {
-            searchRandomProtocol(getNewProtocol(), listener, initialBlackList, null, searchFilter);
+            searchRandomProtocol(getNewProtocol(listener.getProxy(), listener.getJdbcUrl()), listener, initialBlackList, null, searchFilter);
         }
         if (searchFilter.isSearchForMaster() || searchFilter.isSearchForSlave()) {
             if (searchFilter.isSearchForMaster()) throw new QueryException("No active connection found for master");
@@ -149,7 +153,7 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
         }
     }
 
-    private void searchRandomProtocol(AuroraMultiNodesProtocol protocol, AuroraListener listener, final List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
+    private static void searchRandomProtocol(AuroraMultiNodesProtocol protocol, AuroraListener listener, final List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
         List<HostAddress> searchAddresses = new ArrayList<HostAddress>(addresses);
         if (blacklist!=null) searchAddresses.removeAll(blacklist.keySet());
 
@@ -165,7 +169,7 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
                     protocol.setMustBeMasterConnection(true);
                     listener.foundActiveMaster(protocol);
                     if (!searchFilter.isSearchForSlave()) return;
-                    else protocol = getNewProtocol();
+                    else protocol = getNewProtocol(listener.getProxy(), listener.getJdbcUrl());
                 } else if (searchFilter.isSearchForSlave() &&  !protocol.isMasterConnection()) {
                     searchFilter.setSearchForSlave(false);
                     protocol.setMustBeMasterConnection(false);
@@ -173,7 +177,7 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
                     if (!searchFilter.isSearchForMaster()) return;
                     else {
                         listener.searchByStartName(protocol, addresses);
-                        protocol = getNewProtocol();
+                        protocol = getNewProtocol(listener.getProxy(), listener.getJdbcUrl());
                     }
                 }
             } catch (QueryException e ) {
@@ -187,9 +191,8 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
         }
     }
 
-    @Override
-    public AuroraMultiNodesProtocol getNewProtocol() {
-        AuroraMultiNodesProtocol newProtocol = new AuroraMultiNodesProtocol(this.jdbcUrl);
+    public static AuroraMultiNodesProtocol getNewProtocol(FailoverProxy proxy, JDBCUrl jdbcUrl) {
+        AuroraMultiNodesProtocol newProtocol = new AuroraMultiNodesProtocol(jdbcUrl);
         newProtocol.setProxy(proxy);
         return newProtocol;
     }

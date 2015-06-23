@@ -75,7 +75,6 @@ public interface Protocol {
 
     void connect() throws QueryException;
     void connect(String host, int port) throws QueryException, IOException;
-    void loop(FailoverListener listener, List<HostAddress> addresses, Map<HostAddress, Long> connectionsBlacklist, SearchFilter searchFilter) throws QueryException;
 
     JDBCUrl getJdbcUrl();
     boolean inTransaction();
@@ -94,7 +93,7 @@ public interface Protocol {
     void selectDB(String database) throws QueryException;
 
     String getServerVersion();
-    Protocol getNewProtocol();
+
     void setReadonly(boolean readOnly) throws QueryException;
     boolean isConnected();
     boolean getReadonly();

@@ -50,6 +50,7 @@ OF SUCH DAMAGE.
 package org.mariadb.jdbc.internal.mysql.listener;
 
 import org.mariadb.jdbc.HostAddress;
+import org.mariadb.jdbc.JDBCUrl;
 import org.mariadb.jdbc.internal.common.QueryException;
 import org.mariadb.jdbc.internal.common.query.MySQLQuery;
 import org.mariadb.jdbc.internal.common.queryresults.QueryResult;
@@ -69,16 +70,13 @@ import java.util.logging.Logger;
 public class AuroraListener extends ReplicationListener {
     private final static Logger log = Logger.getLogger(AuroraListener.class.getName());
 
-    public AuroraListener() {
-        masterProtocol = null;
-        secondaryProtocol = null;
+    public AuroraListener(JDBCUrl jdbcUrl) {
+        super(jdbcUrl);
     }
 
     @Override
-    public void initializeConnection(Protocol protocol) throws QueryException {
-        this.masterProtocol = (AuroraMultiNodesProtocol)protocol;
-        this.currentProtocol = this.masterProtocol;
-        parseHAOptions(protocol);
+    public void initializeConnection() throws QueryException {
+        parseHAOptions();
         if (validConnectionTimeout != 0)
             scheduledPing = Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(new PingLoop(this), validConnectionTimeout, validConnectionTimeout, TimeUnit.SECONDS);
         try {
@@ -101,9 +99,10 @@ public class AuroraListener extends ReplicationListener {
     public void reconnectFailedConnection(boolean searchForMaster, boolean searchForSecondary, boolean initialConnection) throws QueryException {
         log.info("reconnectFailedConnection : searchForMaster="+searchForMaster+" searchForSecondary="+searchForSecondary);
 
-        List<HostAddress> loopAddress = new LinkedList(Arrays.asList(this.masterProtocol.getJdbcUrl().getHostAddresses()));
-        List<HostAddress> failAddress = new LinkedList<HostAddress>();
+        resetOldsBlackListHosts();
 
+        List<HostAddress> loopAddress = new LinkedList(jdbcUrl.getHostAddresses());
+        List<HostAddress> failAddress = new LinkedList<HostAddress>();
 
         if (masterProtocol!=null && masterProtocol.getHostAddress() != null)loopAddress.remove(masterProtocol.getHostAddress());
         if (isMasterHostFail()) {
@@ -115,36 +114,39 @@ public class AuroraListener extends ReplicationListener {
             failAddress.add(secondaryProtocol.getHostAddress());
         } else if (isMasterHostFail()) {
             HostAddress probableMaster = searchByStartName(secondaryProtocol, loopAddress);
-            if (probableMaster != null) ((AuroraMultiNodesProtocol)masterProtocol).searchProbableMaster(this, probableMaster, blacklist, new SearchFilter(searchForMaster, searchForSecondary));
+            if (probableMaster != null) AuroraMultiNodesProtocol.searchProbableMaster(this, probableMaster, blacklist, new SearchFilter(searchForMaster, searchForSecondary));
         }
 
         if (((searchForMaster && isMasterHostFail())|| (searchForSecondary && isSecondaryHostFail())) || initialConnection) {
-            masterProtocol.loop(this, loopAddress, blacklist, new SearchFilter(searchForMaster, searchForSecondary));
+            AuroraMultiNodesProtocol.loop(this, loopAddress, blacklist, new SearchFilter(searchForMaster, searchForSecondary));
         }
     }
 
     @Override
     public HandleErrorResult secondaryFail(Method method, Object[] args) throws Throwable {
         if (!isMasterHostFail()) {
-            try {
-                this.masterProtocol.ping(); //check that master is on before switching to him
+            if (this.masterProtocol != null) {
+                try {
 
-                //since replica are restarted after a change of master, checking if the master as stayed master
-                if (!masterProtocol.checkIfMaster()) {
-                    log.finest("switching to new secondary connection");
-                    syncConnection(this.secondaryProtocol, this.masterProtocol);
-                    this.secondaryProtocol = this.masterProtocol;
+                    this.masterProtocol.ping(); //check that master is on before switching to him
+
+                    //since replica are restarted after a change of master, checking if the master as stayed master
+                    if (!masterProtocol.checkIfMaster()) {
+                        log.finest("switching to new secondary connection");
+                        syncConnection(this.secondaryProtocol, this.masterProtocol);
+                        this.secondaryProtocol = this.masterProtocol;
+                        setMasterHostFail();
+                        currentProtocol = this.masterProtocol;
+                    } else {
+                        log.finest("switching to master connection");
+                        syncConnection(this.secondaryProtocol, this.masterProtocol);
+                        currentProtocol = this.masterProtocol;
+                    }
+                    launchFailLoopIfNotlaunched(true); //launch reconnection loop to find the new master
+                    return relaunchOperation(method, args); //now that we are on master, relaunched result if the result was not crashing the master
+                } catch (Exception e) {
                     setMasterHostFail();
-                    currentProtocol = this.masterProtocol;
-                } else {
-                    log.finest("switching to master connection");
-                    syncConnection(this.secondaryProtocol, this.masterProtocol);
-                    currentProtocol = this.masterProtocol;
                 }
-                launchFailLoopIfNotlaunched(true); //launch reconnection loop to find the new master
-                return relaunchOperation(method, args); //now that we are on master, relaunched result if the result was not crashing the master
-            } catch (Exception e) {
-                setMasterHostFail();
             }
         }
 

@@ -610,9 +610,9 @@ public class MySQLProtocol implements Protocol {
     public JDBCUrl getJdbcUrl() {
         return jdbcUrl;
     }
-    @Override
-    public MySQLProtocol getNewProtocol() {
-        MySQLProtocol newProtocol = new MySQLProtocol(this.jdbcUrl);
+
+    public static MySQLProtocol getNewProtocol(FailoverProxy proxy, JDBCUrl jdbcUrl) {
+        MySQLProtocol newProtocol = new MySQLProtocol(jdbcUrl);
         newProtocol.setProxy(proxy);
         return newProtocol;
     }
@@ -658,12 +658,12 @@ public class MySQLProtocol implements Protocol {
      * @param searchFilter
      * @throws QueryException
      */
-    public void loop(FailoverListener listener, List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
+    public static void loop(FailoverListener listener, List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
         if (log.isLoggable(Level.FINE)) {
             log.fine("searching for master, address:"+addresses+" blacklist:"+blacklist.keySet());
         }
         List initialBlackList = new ArrayList(blacklist.keySet());
-        Protocol protocol = getNewProtocol();
+        Protocol protocol = getNewProtocol(listener.getProxy(), listener.getJdbcUrl());
         if (searchRandomProtocol(protocol, listener, addresses, blacklist)) {
             return;
         } else if (searchRandomProtocol(protocol, listener, initialBlackList, null)) {
@@ -672,13 +672,13 @@ public class MySQLProtocol implements Protocol {
     }
 
 
-    private boolean searchRandomProtocol(Protocol protocol, FailoverListener listener, final List<HostAddress> addresses, Map<HostAddress, Long> blacklist) throws QueryException {
+    private static boolean searchRandomProtocol(Protocol protocol, FailoverListener listener, final List<HostAddress> addresses, Map<HostAddress, Long> blacklist) throws QueryException {
         List<HostAddress> searchAddresses = new ArrayList<HostAddress>(addresses);
         if (blacklist!=null) searchAddresses.removeAll(blacklist.keySet());
         Random rand = new Random();
         int index=0;
         while (!searchAddresses.isEmpty()) {
-            if (jdbcUrl.getHaMode().equals(UrlHAMode.LOADBALANCE)) {
+            if (listener.getJdbcUrl().getHaMode().equals(UrlHAMode.LOADBALANCE)) {
                 index = rand.nextInt(searchAddresses.size());
             }
             protocol.setHostAddress(searchAddresses.get(index));
@@ -691,7 +691,7 @@ public class MySQLProtocol implements Protocol {
                 return true;
             } catch (QueryException e ) {
                 if (blacklist!=null)blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
-                log.info("Could not connect to " + currentHost + " searching for master, error:" + e.getMessage());
+                log.info("Could not connect to " + protocol.getHostAddress() + " searching for master, error:" + e.getMessage());
             }
         }
         return false;
@@ -1063,6 +1063,7 @@ public class MySQLProtocol implements Protocol {
     @Override
     public  void cancelCurrentQuery() throws QueryException, IOException {
         MySQLProtocol copiedProtocol = new MySQLProtocol(jdbcUrl);
+        copiedProtocol.setHostAddress(getHostAddress());
         copiedProtocol.connect();
         copiedProtocol.executeQuery(new MySQLQuery("KILL QUERY " + serverThreadId));
         copiedProtocol.close();

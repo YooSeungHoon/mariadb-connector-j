@@ -80,8 +80,8 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             stmt.execute("drop table  if exists multinodeReadSlave");
             stmt.execute("create table multinodeReadSlave (id int not null primary key auto_increment, test VARCHAR(10))");
 
-            //wait slave replication
-            Thread.sleep(500);
+            //wait to be sure slave have replicate data
+            Thread.sleep(2000);
 
             connection.setReadOnly(true);
 
@@ -112,6 +112,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             Assert.assertFalse(connection.isReadOnly());
         } finally {
             restartProxy(slaveServerId);
+            assureBlackList(connection);
             if (connection != null) connection.close();
             log.fine("failoverSlaveToMaster done");
         }
@@ -148,6 +149,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             Assert.assertFalse(connection.isReadOnly());
         } finally {
             assureProxy();
+            assureBlackList(connection);
             if (connection != null) connection.close();
             log.fine("failoverSlaveToMaster done");
         }
@@ -172,6 +174,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             Assert.assertTrue(connection.isReadOnly());
         } finally {
             assureProxy();
+            assureBlackList(connection);
             if (connection != null) connection.close();
             log.fine("failoverDuringMasterSetReadOnly done");
         }
@@ -198,6 +201,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             Assert.assertFalse(connection.isReadOnly());
         } finally {
             assureProxy();
+            assureBlackList(connection);
             if (connection != null) connection.close();
             log.fine("failoverSlaveToMaster done");
         }
@@ -233,6 +237,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
         } finally {
             log.fine("failoverSlaveAndMasterWithoutAutoConnect done");
             assureProxy();
+            assureBlackList(connection);
             if (connection != null) connection.close();
         }
     }
@@ -267,6 +272,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
         } finally {
             log.fine("failoverSlaveAndMasterWithAutoConnect done");
             assureProxy();
+            assureBlackList(connection);
             if (connection != null) connection.close();
         }
     }
@@ -289,6 +295,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
         } finally {
             log.fine("failoverMasterWithAutoConnect done");
             assureProxy();
+            assureBlackList(connection);
             try {
                 Thread.sleep(200); //wait to not have problem with next test
             } catch (InterruptedException e) {
@@ -322,6 +329,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
         } finally {
             log.fine("checkReconnectionToMasterAfterTimeout done");
             assureProxy();
+            assureBlackList(connection);
             if (connection != null) connection.close();
         }
     }
@@ -332,7 +340,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
         Connection connection = null;
         log.fine("checkReconnectionToMasterAfterQueryNumber begin");
         try {
-            connection = getNewConnection("&autoReconnect=true&secondsBeforeRetryMaster=30&queriesBeforeRetryMaster=10", true);
+            connection = getNewConnection("&autoReconnect=true&secondsBeforeRetryMaster=3000&queriesBeforeRetryMaster=10", true);
             int masterServerId = getServerId(connection);
             stopProxy(masterServerId);
 
@@ -349,13 +357,14 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             restartProxy(masterServerId);
 
             //give time to autoreconnect to master
-            Thread.sleep(2000);
+            Thread.sleep(15000);
             int currentServerId = getServerId(connection);
             Assert.assertTrue(currentServerId == masterServerId);
         } finally {
 
             log.fine("checkReconnectionToMasterAfterQueryNumber done");
             assureProxy();
+            assureBlackList(connection);
             if (connection != null) connection.close();
         }
     }
@@ -384,6 +393,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
         } finally {
             log.fine("writeToSlaveAfterFailover done");
             assureProxy();
+            assureBlackList(connection);
             if (connection != null) connection.close();
         }
 
@@ -428,6 +438,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
         } finally {
             log.fine("checkReconnectionAfterInactivity done");
             assureProxy();
+            assureBlackList(connection);
             if (connection != null) connection.close();
         }
     }
@@ -487,6 +498,7 @@ public class ReplicationFailoverTest extends BaseMultiHostTest {
             log.fine("failoverMasterWithAutoConnectAndTransaction done");
             assureProxy();
             if (connection != null) {
+                assureBlackList(connection);
                 try { connection.setAutoCommit(true); } catch (SQLException e) {}
                 connection.close();
             }

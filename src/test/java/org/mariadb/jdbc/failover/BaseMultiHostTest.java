@@ -12,6 +12,7 @@ import org.mariadb.jdbc.internal.mysql.*;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.sql.*;
+import java.util.List;
 import java.util.logging.*;
 
 /**
@@ -50,7 +51,7 @@ public class BaseMultiHostTest {
 
         initialGaleraUrl = System.getProperty("defaultGaleraUrl");
         initialReplicationUrl = System.getProperty("defaultReplicationUrl");
-        initialAuroraUrl = System.getProperty("defaultAuroraHostUrl");
+        initialAuroraUrl = System.getProperty("defaultAuroraUrl");
 
         if (initialReplicationUrl != null) proxyReplicationUrl=createProxies(initialReplicationUrl);
         if (initialGaleraUrl != null) proxyGaleraUrl=createProxies(initialGaleraUrl);
@@ -154,6 +155,13 @@ public class BaseMultiHostTest {
     public void assureProxy() {
         for (TcpProxy proxy : tcpProxies) proxy.assureProxyOk();
     }
+    public void assureBlackList(Connection connection) {
+        try {
+            Protocol protocol = getProtocolFromConnection(connection);
+            protocol.getProxy().listener.getBlacklist().clear();
+        } catch (Throwable e) { }
+    }
+
 
     //does the user have super privileges or not?
     public boolean hasSuperPrivilege(Connection connection, String testName) throws SQLException{
@@ -201,9 +209,16 @@ public class BaseMultiHostTest {
         return rs.getString(2);
     }
 
+
     public int getGaleraServerId(Connection connection) throws SQLException, NumberFormatException {
         return Integer.parseInt(getGaleraServerName(connection).substring(6));
     }
 
+    public int getAuroraServerId(Connection connection) throws Throwable {
+        Protocol protocol = getProtocolFromConnection(connection);
+        HostAddress hostAddress = protocol.getHostAddress();
+        List<HostAddress> hostAddressList = protocol.getJdbcUrl().getHostAddresses();
+        return hostAddressList.indexOf(hostAddress) + 1;
+    }
 
 }

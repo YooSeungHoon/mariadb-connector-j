@@ -50,6 +50,7 @@ OF SUCH DAMAGE.
 package org.mariadb.jdbc.internal.mysql.listener;
 
 import org.mariadb.jdbc.HostAddress;
+import org.mariadb.jdbc.JDBCUrl;
 import org.mariadb.jdbc.internal.common.QueryException;
 import org.mariadb.jdbc.internal.mysql.FailoverProxy;
 import org.mariadb.jdbc.internal.mysql.HandleErrorResult;
@@ -62,7 +63,8 @@ import java.util.Map;
 
 public interface FailoverListener {
     void setProxy(FailoverProxy proxy);
-    void initializeConnection(Protocol protocol) throws QueryException;
+    FailoverProxy getProxy();
+    void initializeConnection() throws QueryException;
     void preExecute() throws SQLException;
     void preClose() throws SQLException;
     boolean shouldReconnect();
@@ -76,4 +78,5 @@ public interface FailoverListener {
     void foundActiveMaster(Protocol protocol) throws QueryException;
     Map<HostAddress, Long> getBlacklist();
     void syncConnection(Protocol from, Protocol to) throws QueryException;
+    JDBCUrl getJdbcUrl();
 }

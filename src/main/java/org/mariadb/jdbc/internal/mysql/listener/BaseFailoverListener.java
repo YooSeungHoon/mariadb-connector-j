@@ -50,6 +50,7 @@ OF SUCH DAMAGE.
 */
 
 import org.mariadb.jdbc.HostAddress;
+import org.mariadb.jdbc.JDBCUrl;
 import org.mariadb.jdbc.internal.SQLExceptionMapper;
 import org.mariadb.jdbc.internal.common.QueryException;
 import org.mariadb.jdbc.internal.common.query.MySQLQuery;
@@ -61,10 +62,7 @@ import org.mariadb.jdbc.internal.mysql.Protocol;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.SQLException;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -74,6 +72,11 @@ import java.util.logging.Logger;
 public abstract class BaseFailoverListener implements FailoverListener {
     private final static Logger log = Logger.getLogger(BaseFailoverListener.class.getName());
 
+    public final JDBCUrl jdbcUrl ;
+
+    protected BaseFailoverListener(JDBCUrl jdbcUrl) {
+        this.jdbcUrl = jdbcUrl;
+    }
 
     /* =========================== Failover  parameters ========================================= */
     /**
@@ -136,7 +139,7 @@ public abstract class BaseFailoverListener implements FailoverListener {
     private AtomicBoolean secondaryHostFail = new AtomicBoolean();
     protected AtomicBoolean isLooping = new AtomicBoolean();
     protected ScheduledFuture scheduledFailover = null;
-    protected Protocol currentProtocol;
+    protected Protocol currentProtocol = null;
     protected int queriesSinceFailover=0;
     protected long lastRetry = 0;
     protected FailoverProxy proxy;
@@ -149,6 +152,7 @@ public abstract class BaseFailoverListener implements FailoverListener {
     public void setProxy(FailoverProxy proxy) {
         this.proxy = proxy;
     }
+    public FailoverProxy getProxy() { return  this.proxy; }
 
     public Map<HostAddress, Long> getBlacklist() {
         return blacklist;
@@ -159,26 +163,26 @@ public abstract class BaseFailoverListener implements FailoverListener {
      * parse High availability options.
      *
      */
-    protected void parseHAOptions(Protocol protocol) {
-        String s = protocol.getInfo().getProperty("autoReconnect");
+    protected void parseHAOptions() {
+        String s = jdbcUrl.getProperties().getProperty("autoReconnect");
         if (s != null && s.equals("true")) autoReconnect = true;
 
-        s = protocol.getInfo().getProperty("maxReconnects");
+        s = jdbcUrl.getProperties().getProperty("maxReconnects");
         if (s != null) maxReconnects = Integer.parseInt(s);
 
-        s = protocol.getInfo().getProperty("queriesBeforeRetryMaster");
+        s = jdbcUrl.getProperties().getProperty("queriesBeforeRetryMaster");
         if (s != null) queriesBeforeRetryMaster = Integer.parseInt(s);
 
-        s = protocol.getInfo().getProperty("secondsBeforeRetryMaster");
+        s = jdbcUrl.getProperties().getProperty("secondsBeforeRetryMaster");
         if (s != null) secondsBeforeRetryMaster = Integer.parseInt(s);
 
-        s = protocol.getInfo().getProperty("retriesAllDown");
+        s = jdbcUrl.getProperties().getProperty("retriesAllDown");
         if (s != null) retriesAllDown = Integer.parseInt(s);
 
-        s = protocol.getInfo().getProperty("validConnectionTimeout");
+        s = jdbcUrl.getProperties().getProperty("validConnectionTimeout");
         if (s != null) validConnectionTimeout = Integer.parseInt(s);
 
-        s = protocol.getInfo().getProperty("loadBalanceBlacklistTimeout");
+        s = jdbcUrl.getProperties().getProperty("loadBalanceBlacklistTimeout");
         if (s != null) loadBalanceBlacklistTimeout = Integer.parseInt(s);
 
     }
@@ -224,7 +228,10 @@ public abstract class BaseFailoverListener implements FailoverListener {
         long currentTime = System.currentTimeMillis();
         Set<HostAddress> currentBlackListkeys = new HashSet<HostAddress>(blacklist.keySet());
         for (HostAddress blackListHost : currentBlackListkeys) {
-            if (blacklist.get(blackListHost) < currentTime - loadBalanceBlacklistTimeout * 1000) blacklist.remove(blackListHost);
+            if (blacklist.get(blackListHost) < currentTime - loadBalanceBlacklistTimeout * 1000) {
+                log.fine("host " + blackListHost+" remove of blacklist");
+                blacklist.remove(blackListHost);
+            }
         }
     }
 
@@ -306,7 +313,6 @@ public abstract class BaseFailoverListener implements FailoverListener {
             scheduledFailover = Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(new FailLoop(this), now ? 0 : 250, 250, TimeUnit.MILLISECONDS);
         }
     }
-
 
     public Protocol getCurrentProtocol() {
         return currentProtocol;
@@ -391,22 +397,26 @@ public abstract class BaseFailoverListener implements FailoverListener {
      * @throws SQLException
      */
     public void syncConnection(Protocol from, Protocol to) throws QueryException {
-        to.setMaxAllowedPacket(from.getMaxAllowedPacket());
-        to.setMaxRows(from.getMaxRows());
-        to.setInternalMaxRows(from.getMaxRows());
-        if (from.getTransactionIsolationLevel() != 0) {
-            to.setTransactionIsolation(from.getTransactionIsolationLevel());
-        }
-        if (from.getDatabase() != null && !"".equals(from.getDatabase())) {
-            to.selectDB(from.getDatabase());
-        }
-        if (from.getAutocommit() != to.getAutocommit()) {
-            to.executeQuery(new MySQLQuery("set autocommit=" + (from.getAutocommit() ? "1" : "0")));
+        if (from != null) {
+            to.setMaxAllowedPacket(from.getMaxAllowedPacket());
+            to.setMaxRows(from.getMaxRows());
+            to.setInternalMaxRows(from.getMaxRows());
+            if (from.getTransactionIsolationLevel() != 0) {
+                to.setTransactionIsolation(from.getTransactionIsolationLevel());
+            }
+            if (from.getDatabase() != null && !"".equals(from.getDatabase())) {
+                to.selectDB(from.getDatabase());
+            }
+            if (from.getAutocommit() != to.getAutocommit()) {
+                to.executeQuery(new MySQLQuery("set autocommit=" + (from.getAutocommit() ? "1" : "0")));
+            }
         }
     }
+    public JDBCUrl getJdbcUrl() {
+        return jdbcUrl;
+    }
 
-
-    public abstract void initializeConnection(Protocol protocol) throws QueryException;
+    public abstract void initializeConnection() throws QueryException;
 
     public abstract void preExecute() throws SQLException;
 

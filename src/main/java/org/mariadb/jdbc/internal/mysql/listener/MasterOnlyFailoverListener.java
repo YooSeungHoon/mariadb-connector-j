@@ -49,9 +49,11 @@ OF SUCH DAMAGE.
 
 package org.mariadb.jdbc.internal.mysql.listener;
 
+import org.mariadb.jdbc.JDBCUrl;
 import org.mariadb.jdbc.internal.SQLExceptionMapper;
 import org.mariadb.jdbc.internal.common.QueryException;
 import org.mariadb.jdbc.internal.mysql.HandleErrorResult;
+import org.mariadb.jdbc.internal.mysql.MySQLProtocol;
 import org.mariadb.jdbc.internal.mysql.Protocol;
 
 import java.lang.reflect.Method;
@@ -63,13 +65,16 @@ import java.util.logging.Logger;
 public class MasterOnlyFailoverListener extends BaseFailoverListener implements FailoverListener {
     private final static Logger log = Logger.getLogger(MasterOnlyFailoverListener.class.getName());
 
-    public MasterOnlyFailoverListener() { }
+    public MasterOnlyFailoverListener(final JDBCUrl jdbcUrl) {
+        super(jdbcUrl);
+        log.finest("init jdbc :"+jdbcUrl.toString());
+    }
 
-    public void initializeConnection(Protocol protocol) throws QueryException {
-        this.currentProtocol = protocol;
-        parseHAOptions(this.currentProtocol);
+    public void initializeConnection() throws QueryException {
+        this.currentProtocol = null;
+        parseHAOptions();
         log.fine("launching initial loop");
-        this.currentProtocol.loop(this, protocol.getJdbcUrl().getHostAddresses(), blacklist, null);
+        reconnectFailedConnection();
         log.fine("launching initial loop end");
     }
 
@@ -85,8 +90,9 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
 
     public void reconnectFailedConnection() throws QueryException {
         currentConnectionAttempts++;
-        log.fine("launching reconnectFailedConnection loop");
-        this.currentProtocol.loop(this, this.currentProtocol.getJdbcUrl().getHostAddresses(), blacklist, null);
+        log.fine("launching reconnectFailedConnection loop jdbc="+this.jdbcUrl.toString());
+        resetOldsBlackListHosts();
+        MySQLProtocol.loop(this, this.jdbcUrl.getHostAddresses(), blacklist, null);
         log.fine("launching reconnectFailedConnection loop end");
 
         //if no error, reset failover variables
@@ -114,7 +120,7 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
         }
 
         if (autoReconnect && shouldReconnect()) {
-            if (this.currentProtocol.getJdbcUrl().getHostAddresses().size() == 1) {
+            if (this.jdbcUrl.getHostAddresses().size() == 1) {
                 //if not first attempt to connect, wait for initialTimeout
                 if (currentConnectionAttempts > 0) {
                     try {
@@ -147,15 +153,18 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
      */
     public void foundActiveMaster(Protocol protocol) throws QueryException {
         syncConnection(this.currentProtocol, protocol);
-        if (currentProtocol.getReadonly()) {
-            protocol.setReadonly(true);
-            currentProtocol = protocol;
-            try {
-                setSessionReadOnly(true);
-            } catch (QueryException e) {
-                SQLExceptionMapper.getSQLException("Error setting connection read-only after a failover", e);
-            }
-        } else currentProtocol = protocol;
+        if (currentProtocol != null) {
+            if (currentProtocol.getReadonly()) {
+                protocol.setReadonly(true);
+                currentProtocol = protocol;
+                try {
+                    setSessionReadOnly(true);
+                } catch (QueryException e) {
+                    SQLExceptionMapper.getSQLException("Error setting connection read-only after a failover", e);
+                }
+            } else currentProtocol = protocol;
+        } else this.currentProtocol = protocol;
+
 
         if (log.isLoggable(Level.INFO)) {
             if (isMasterHostFail()) {

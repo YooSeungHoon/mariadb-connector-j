@@ -64,11 +64,10 @@ public class FailoverProxy implements InvocationHandler {
 
     public FailoverListener listener;
 
-    public FailoverProxy(Protocol protocol, FailoverListener listener) throws QueryException, SQLException{
-        protocol.setProxy(this);
+    public FailoverProxy(FailoverListener listener) throws QueryException, SQLException{
         this.listener = listener;
         this.listener.setProxy(this);
-        this.listener.initializeConnection(protocol);
+        this.listener.initializeConnection();
     }
 
     /**

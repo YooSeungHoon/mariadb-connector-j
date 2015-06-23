@@ -5,9 +5,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
+import org.mariadb.jdbc.internal.mysql.Protocol;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.sql.*;
@@ -23,7 +25,7 @@ import java.util.logging.Formatter;
 @Ignore
 public class BaseTest {
 
-    protected static Logger log = Logger.getLogger("org.maria.jdbc");
+    protected static Logger log = Logger.getLogger("org.mariadb.jdbc");
     protected Connection connection;
     protected static String connU;
     protected static String connURI;
@@ -39,17 +41,6 @@ public class BaseTest {
     public static void beforeClassBaseTest() {
     	String url = System.getProperty("dbUrl", mDefUrl);
     	JDBCUrl jdbcUrl = JDBCUrl.parse(url);
-
-        String logLevel = System.getProperty("logLevel");
-        if (logLevel != null) {
-            if (log.getHandlers().length == 0) {
-                ConsoleHandler consoleHandler = new ConsoleHandler();
-                consoleHandler.setFormatter(new CustomFormatter());
-                consoleHandler.setLevel(Level.parse(logLevel));
-                log.addHandler(consoleHandler);
-                log.setLevel(Level.FINE);
-            }
-        }
 
     	hostname = jdbcUrl.getHostAddresses().get(0).host;
     	port = jdbcUrl.getHostAddresses().get(0).port;
@@ -72,7 +63,19 @@ public class BaseTest {
     	}
     	setURI();
     }
-    
+    public void assureBlackList(Connection connection) {
+        try {
+            Protocol protocol = getProtocolFromConnection(connection);
+            protocol.getProxy().listener.getBlacklist().clear();
+        } catch (Throwable e) { }
+    }
+
+    protected Protocol getProtocolFromConnection(Connection conn) throws Throwable {
+
+        Method getProtocol = MySQLConnection.class.getDeclaredMethod("getProtocol", new Class[0]);
+        getProtocol.setAccessible(true);
+        return (Protocol) getProtocol.invoke(conn);
+    }
     private static void setURI() {
     	connU = "jdbc:mysql://" + hostname + ":" + port + "/" + database;
     	connURI = connU + "?user=" + username
@@ -277,39 +280,5 @@ public class BaseTest {
     static void logInfo(String message)
     {
         log.info(message);
-    }
-}
-
-class CustomFormatter  extends Formatter {
-    private static final String format = "[%1$tT] %4$s: %2$s - %5$s %6$s%n";
-    private final java.util.Date dat = new java.util.Date();
-    public synchronized String format(LogRecord record) {
-        dat.setTime(record.getMillis());
-        String source;
-        if (record.getSourceClassName() != null) {
-            source = record.getSourceClassName();
-            if (record.getSourceMethodName() != null) {
-                source += " " + record.getSourceMethodName();
-            }
-        } else {
-            source = record.getLoggerName();
-        }
-        String message = formatMessage(record);
-        String throwable = "";
-        if (record.getThrown() != null) {
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            pw.println();
-            record.getThrown().printStackTrace(pw);
-            pw.close();
-            throwable = sw.toString();
-        }
-        return String.format(format,
-                dat,
-                source,
-                record.getLoggerName(),
-                record.getLevel().getName(),
-                message,
-                throwable);
     }
 }

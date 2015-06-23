@@ -69,6 +69,7 @@ import java.util.logging.Logger;
 
 
 public class MySQLDataSource implements DataSource, ConnectionPoolDataSource, XADataSource {
+    private final static Logger log = Logger.getLogger(MySQLDataSource.class.getName());
 
     private JDBCUrl jdbcUrl;
 
@@ -267,6 +268,7 @@ public class MySQLDataSource implements DataSource, ConnectionPoolDataSource, XA
     public Connection getConnection(final String username, final String password) throws SQLException {
         jdbcUrl.setUsername(username);
         jdbcUrl.setPassword(password);
+        log.fine("connection : " +jdbcUrl.toString());
         return getConnection();
     }
 

@@ -225,6 +225,12 @@ public class JDBCUrl {
             s += HostAddress.toString(addresses);
         if (database != null)
             s += "/" + database;
+        if (properties != null) {
+            boolean first=true;
+            for (String key : properties.stringPropertyNames()) {
+                s+=(first?"?":"&")+key+"="+properties.get(key);
+            }
+        }
         return s;
     }
 

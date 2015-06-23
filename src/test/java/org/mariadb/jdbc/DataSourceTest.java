@@ -1,5 +1,6 @@
 package org.mariadb.jdbc;
 
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -39,7 +40,7 @@ public class DataSourceTest extends BaseTest {
             connection.close();
         }
     }
-    
+
     /**
      * CONJ-80
      * @throws SQLException
@@ -56,7 +57,7 @@ public class DataSourceTest extends BaseTest {
     	connection.createStatement().execute("DROP DATABASE IF EXISTS test2");
     	connection.close();
     }
-    
+
     /**
      * CONJ-80
      * @throws SQLException
@@ -69,24 +70,32 @@ public class DataSourceTest extends BaseTest {
     	connection = ds.getConnection(username, password);
     	connection.close();
     }
-    
+
     /**
      * CONJ-80
      * @throws SQLException
      */
     @Test(expected=SQLException.class) // unless port 3307 can be used
     public void setPortTest() throws SQLException {
+
+
     	MySQLDataSource ds = new MySQLDataSource(hostname, port, database);
-    	Connection connection = ds.getConnection(username, password);
-    	ds.setPort(3307);
-    	connection = ds.getConnection(username, password);
-    	connection.close();
+    	Connection connection2 = ds.getConnection(username, password);
+        //delete blacklist, because can failover on 3306 is filled
+        assureBlackList(connection2);
+        connection2.close();
+
+        ds.setPort(3307);
+
+        //must throw SQLException
+    	ds.getConnection(username, password);
+        Assert.fail();
     }
-    
+
     /**
      * CONJ-123:
      * Session variables lost and exception if set via MySQLDataSource.setProperties/setURL
-     * @throws SQLException 
+     * @throws SQLException
      */
     @Test
     public void setPropertiesTest() throws SQLException {

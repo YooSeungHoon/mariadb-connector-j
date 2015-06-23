@@ -82,16 +82,15 @@ public class ReplicationProtocol extends MySQLProtocol {
      * @param searchFilter
      * @throws QueryException
      */
-    @Override
-    public void loop(FailoverListener listener, List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
+    public static void loop(FailoverListener listener, List<HostAddress> addresses, Map<HostAddress, Long> blacklist, SearchFilter searchFilter) throws QueryException {
         if (log.isLoggable(Level.FINE)) {
             log.fine("searching for master:"+ searchFilter.isSearchForMaster()+ " replica:"+ searchFilter.isSearchForSlave()+ " address:"+addresses+" blacklist:"+blacklist.keySet());
         }
         List initialBlackList = new ArrayList(blacklist.keySet());
-        searchRandomProtocol(getNewProtocol(), (ReplicationListener) listener, addresses, blacklist, searchFilter);
+        searchRandomProtocol(getNewProtocol(listener.getProxy(), listener.getJdbcUrl()), (ReplicationListener) listener, addresses, blacklist, searchFilter);
 
         if (searchFilter.isSearchForMaster() || searchFilter.isSearchForSlave()) {
-            searchRandomProtocol(getNewProtocol(), (ReplicationListener)listener, initialBlackList, null, searchFilter);
+            searchRandomProtocol(getNewProtocol(listener.getProxy(), listener.getJdbcUrl()), (ReplicationListener)listener, initialBlackList, null, searchFilter);
         }
         if (searchFilter.isSearchForMaster() || searchFilter.isSearchForSlave()) {
             if (searchFilter.isSearchForMaster()) throw new QueryException("No active connection found for master");
@@ -99,7 +98,7 @@ public class ReplicationProtocol extends MySQLProtocol {
         }
     }
 
-    private void searchRandomProtocol(ReplicationProtocol protocol, ReplicationListener listener, final List<HostAddress> addresses, Map<HostAddress, Long> blacklist,  SearchFilter searchFilter) throws QueryException {
+    private static void searchRandomProtocol(ReplicationProtocol protocol, ReplicationListener listener, final List<HostAddress> addresses, Map<HostAddress, Long> blacklist,  SearchFilter searchFilter) throws QueryException {
         List<HostAddress> searchAddresses = new ArrayList<HostAddress>(addresses);
         if (blacklist!=null) searchAddresses.removeAll(blacklist.keySet());
 
@@ -124,7 +123,7 @@ public class ReplicationProtocol extends MySQLProtocol {
                         listener.foundActiveMaster(protocol);
 
                         if (!searchFilter.isSearchForSlave()) return;
-                        else protocol = getNewProtocol();
+                        else protocol = getNewProtocol(listener.getProxy(), listener.getJdbcUrl());
 
                     } else if (searchFilter.isSearchForSlave() && !protocol.isMasterConnection()) {
 
@@ -133,7 +132,7 @@ public class ReplicationProtocol extends MySQLProtocol {
                         listener.foundActiveSecondary(protocol);
 
                         if (!searchFilter.isSearchForMaster()) return;
-                        else protocol = getNewProtocol();
+                        else protocol = getNewProtocol(listener.getProxy(), listener.getJdbcUrl());
                     }
                 }
 
@@ -145,9 +144,8 @@ public class ReplicationProtocol extends MySQLProtocol {
         }
     }
 
-    @Override
-    public ReplicationProtocol getNewProtocol() {
-        ReplicationProtocol newProtocol = new ReplicationProtocol(this.jdbcUrl);
+    public static ReplicationProtocol getNewProtocol(FailoverProxy proxy, JDBCUrl jdbcUrl) {
+        ReplicationProtocol newProtocol = new ReplicationProtocol(jdbcUrl);
         newProtocol.setProxy(proxy);
         return newProtocol;
     }

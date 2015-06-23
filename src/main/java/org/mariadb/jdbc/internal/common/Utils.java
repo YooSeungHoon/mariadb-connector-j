@@ -525,24 +525,24 @@ public class Utils {
             proxyfiedProtocol = (Protocol) Proxy.newProxyInstance(
                     MySQLProtocol.class.getClassLoader(),
                     new Class[]{Protocol.class},
-                    new FailoverProxy(new MySQLProtocol(jdbcUrl), new MasterOnlyFailoverListener()));
+                    new FailoverProxy(new MasterOnlyFailoverListener(jdbcUrl)));
         } else {
 
             if (jdbcUrl.getHaMode().equals(UrlHAMode.AURORA)) {
                 proxyfiedProtocol = (Protocol) Proxy.newProxyInstance(
                         AuroraMultiNodesProtocol.class.getClassLoader(),
                         new Class[] {Protocol.class},
-                        new FailoverProxy(new AuroraMultiNodesProtocol(jdbcUrl), new AuroraListener()));
+                        new FailoverProxy(new AuroraListener(jdbcUrl)));
             } else if (jdbcUrl.getHaMode().equals(UrlHAMode.REPLICATION)){
                 proxyfiedProtocol = (Protocol) Proxy.newProxyInstance(
                         ReplicationProtocol.class.getClassLoader(),
                         new Class[] {Protocol.class},
-                        new FailoverProxy(new ReplicationProtocol(jdbcUrl), new ReplicationListener()));
+                        new FailoverProxy(new ReplicationListener(jdbcUrl)));
             } else {
                 proxyfiedProtocol = (Protocol) Proxy.newProxyInstance(
                         MySQLProtocol.class.getClassLoader(),
                         new Class[]{Protocol.class},
-                        new FailoverProxy(new MySQLProtocol(jdbcUrl), new MasterOnlyFailoverListener()));
+                        new FailoverProxy(new MasterOnlyFailoverListener(jdbcUrl)));
             }
         }
         return proxyfiedProtocol;

@@ -162,7 +162,7 @@ public class ConnectionPoolTest extends BaseTest {
 
         Properties props = new Properties();
         props.put("user", username);
-        props.put("password", password);
+        props.put("password", (password==null)?"":password);
         
         //A connection pool typically has a connection factor that stored everything needed to
         //create a Connection. Here I create a factory that stores URL, username and password.

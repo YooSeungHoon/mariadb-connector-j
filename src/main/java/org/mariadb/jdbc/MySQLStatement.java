@@ -1256,7 +1256,7 @@ public class MySQLStatement implements Statement {
                     int size = batchQueries.size();
                     MySQLStatement ps = (MySQLStatement) connection.createStatement();
                     ps.execute(batchQueries, isRewriteable && rewriteBatchedStatements, (isRewriteable && rewriteBatchedStatements)?firstRewrite.length():0);
-                    return isRewriteable?getUpdateCountsForReWrittenBatch(ps, size):getUpdateCounts(ps, size);
+                    return (isRewriteable && rewriteBatchedStatements)?getUpdateCountsForReWrittenBatch(ps, size):getUpdateCounts(ps, size);
                 } else {
                     for(; i < batchQueries.size(); i++)  {
                         execute(batchQueries.get(i));

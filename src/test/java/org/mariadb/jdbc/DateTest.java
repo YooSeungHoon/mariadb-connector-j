@@ -183,6 +183,8 @@ public class DateTest extends BaseTest{
     
     @Test
     public void nullTimestampTest() throws SQLException {
+        connection.createStatement().execute("drop table if exists dtest");
+        connection.createStatement().execute("create table dtest (d date)");
         PreparedStatement ps = connection.prepareStatement("insert into dtest values(null)");
         ps.executeUpdate();
         ResultSet rs = connection.createStatement().executeQuery("select * from dtest where d is null");
