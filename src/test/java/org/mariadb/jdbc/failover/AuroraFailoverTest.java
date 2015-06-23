@@ -22,7 +22,7 @@ public class AuroraFailoverTest extends BaseMultiHostTest {
         initialUrl = initialAuroraUrl;
         proxyUrl = proxyAuroraUrl;
     }
-/*
+
 
     class MutableInt {
         int value = 1; // note that we start at 1 since we're counting
@@ -439,7 +439,7 @@ public class AuroraFailoverTest extends BaseMultiHostTest {
         }
 
     }
-*/
+
     @Test
     public void checkReconnectionAfterInactivity() throws Throwable {
         Assume.assumeTrue(initialAuroraUrl != null);
@@ -485,7 +485,7 @@ public class AuroraFailoverTest extends BaseMultiHostTest {
             if (connection != null) connection.close();
         }
     }
-/*
+
     @Test()
     public void checkNoSwitchConnectionDuringTransaction() throws Throwable {
         Assume.assumeTrue(initialAuroraUrl != null);
@@ -596,5 +596,5 @@ public class AuroraFailoverTest extends BaseMultiHostTest {
                 e.printStackTrace();
             }
         }
-    }*/
+    }
 }
