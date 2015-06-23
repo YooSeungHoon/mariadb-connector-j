@@ -1,8 +1,5 @@
 package org.mariadb.jdbc.failover;
 
-import com.amazonaws.services.rds.AmazonRDS;
-import com.amazonaws.services.rds.AmazonRDSClient;
-import com.amazonaws.services.rds.model.*;
 import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Before;
@@ -25,7 +22,7 @@ public class AuroraFailoverTest extends BaseMultiHostTest {
         initialUrl = initialAuroraUrl;
         proxyUrl = proxyAuroraUrl;
     }
-
+/*
 
     class MutableInt {
         int value = 1; // note that we start at 1 since we're counting
@@ -442,7 +439,7 @@ public class AuroraFailoverTest extends BaseMultiHostTest {
         }
 
     }
-
+*/
     @Test
     public void checkReconnectionAfterInactivity() throws Throwable {
         Assume.assumeTrue(initialAuroraUrl != null);
@@ -468,6 +465,8 @@ public class AuroraFailoverTest extends BaseMultiHostTest {
             Assert.assertTrue(connection.isReadOnly());
             restartProxy(masterServerId);
 
+            ResultSet rs = connection.createStatement().executeQuery("select server_id from information_schema.replica_host_status where session_id = 'MASTER_SESSION_ID'");
+            rs.next();
             //wait for more than the 4s (secondsBeforeRetryMaster) timeout, to check that master is on
             try {
                 Thread.sleep(6000);
@@ -486,7 +485,7 @@ public class AuroraFailoverTest extends BaseMultiHostTest {
             if (connection != null) connection.close();
         }
     }
-
+/*
     @Test()
     public void checkNoSwitchConnectionDuringTransaction() throws Throwable {
         Assume.assumeTrue(initialAuroraUrl != null);
@@ -519,8 +518,6 @@ public class AuroraFailoverTest extends BaseMultiHostTest {
         log.fine("failoverMasterWithAutoConnectAndTransaction begin");
         try {
             connection = getNewConnection("&autoReconnect=true", true);
-            //if super user, will write to slave
-            Assume.assumeTrue(!hasSuperPrivilege(connection, "failoverMasterWithAutoConnectAndTransaction"));
             Statement st = connection.createStatement();
 
             int masterServerId = getAuroraServerId(connection);
@@ -599,5 +596,5 @@ public class AuroraFailoverTest extends BaseMultiHostTest {
                 e.printStackTrace();
             }
         }
-    }
+    }*/
 }
