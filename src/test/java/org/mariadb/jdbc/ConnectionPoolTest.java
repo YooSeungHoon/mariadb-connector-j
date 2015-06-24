@@ -43,7 +43,7 @@ public class ConnectionPoolTest extends BaseTest {
     
     /*
      * 
-     */
+
     @Test
     public void testTimeoutsInPool() throws SQLException, InterruptedException {
         org.apache.commons.dbcp.BasicDataSource dataSource;
@@ -125,31 +125,8 @@ public class ConnectionPoolTest extends BaseTest {
         
         // close data source
         dataSource.close();
-        
-        /*
-        Connection conn1 = null;
-        Statement stmt1 = null;
-        ResultSet rs;
-        
-        for(int i = 1; i < 100000; i++)
-        {
-        	conn1 = dataSource.getConnection();
-        	stmt1 = conn1.createStatement();
-			rs = stmt1.executeQuery("SELECT 1");	
-			rs.next();
-			conn1.close();
-        }
-        */
-        
-        // close all connections but conn1
-        /* conn1.close();
-        conn2.close();
-        conn3.close();
-        conn4.close();
-        conn5.close();
-        */
-        // dataSource.close();
-    }
+
+    }     */
     
     /**
      * This test case simulates how the Apache DBCP connection pools works. It is written so it

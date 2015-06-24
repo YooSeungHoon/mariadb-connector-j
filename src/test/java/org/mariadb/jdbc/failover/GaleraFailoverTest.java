@@ -144,6 +144,7 @@ public class GaleraFailoverTest extends BaseMultiHostTest {
                 JDBCUrl jdbcUrl = JDBCUrl.parse(initialUrl);
                 protocol.getProxy().listener.getBlacklist().put(jdbcUrl.getHostAddresses().get(firstServerId - 1), System.currentTimeMillis());
             } catch (Throwable e) {
+                e.printStackTrace();
                 Assert.fail();
             }
 
@@ -161,6 +162,7 @@ public class GaleraFailoverTest extends BaseMultiHostTest {
                 exec.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
             } catch (InterruptedException e) { }
         } catch (Throwable e) {
+            e.printStackTrace();
             Assert.fail();
         } finally {
             assureProxy();

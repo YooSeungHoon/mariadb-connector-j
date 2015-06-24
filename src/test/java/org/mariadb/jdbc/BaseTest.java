@@ -209,6 +209,10 @@ public class BaseTest {
 
         return true;
     }
+    boolean isMariadbServer() throws SQLException {
+        DatabaseMetaData md = connection.getMetaData();
+        return "MariaDB".indexOf(md.getDatabaseProductVersion()) != -1;
+    }
 
 
     //does the user have super privileges or not?

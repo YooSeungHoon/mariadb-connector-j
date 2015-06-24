@@ -109,12 +109,12 @@ public class ReplicationProtocol extends MySQLProtocol {
             protocol.setHostAddress(searchAddresses.get(index));
             searchAddresses.remove(index);
             try {
-                log.fine("host try " + protocol.getHostAddress() +" is compatible master:"+(protocol.isMasterConnection() && searchFilter.isSearchForMaster())+ " slave:"+(!protocol.isMasterConnection() && searchFilter.isSearchForSlave()));
+                if (log.isLoggable(Level.FINE)) log.fine("host try " + protocol.getHostAddress() +" is compatible master:"+(protocol.isMasterConnection() && searchFilter.isSearchForMaster())+ " slave:"+(!protocol.isMasterConnection() && searchFilter.isSearchForSlave()));
                 if ((protocol.isMasterConnection() && searchFilter.isSearchForMaster()) || (!protocol.isMasterConnection() && searchFilter.isSearchForSlave())) {
 
-                    log.fine("trying to connect to " + protocol.getHostAddress());
+                    if (log.isLoggable(Level.FINE)) log.fine("trying to connect to " + protocol.getHostAddress());
                     protocol.connect();
-                    log.fine("connected to " + protocol.getHostAddress());
+                    if (log.isLoggable(Level.FINE)) log.fine("connected to " + protocol.getHostAddress());
 
                     if (searchFilter.isSearchForMaster() && protocol.isMasterConnection()) {
 
@@ -138,7 +138,7 @@ public class ReplicationProtocol extends MySQLProtocol {
 
             } catch (QueryException e ) {
                 if (blacklist!=null)blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
-                log.fine("Could not connect to " + protocol.getHostAddress() + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
+                if (log.isLoggable(Level.FINE)) log.fine("Could not connect to " + protocol.getHostAddress() + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
             }
             if (!searchFilter.isSearchForMaster() && !searchFilter.isSearchForSlave()) return;
         }

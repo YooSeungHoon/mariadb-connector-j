@@ -92,6 +92,7 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
             } else {
                 this.masterConnection = false;
             }
+            this.readOnly = !this.masterConnection;
             return this.masterConnection;
 
         } catch(IOException ioe) {
@@ -110,7 +111,10 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
         try {
 
             protocol.setHostAddress(probableMaster);
+            if (log.isLoggable(Level.FINE)) log.fine("trying to connect to " + protocol.getHostAddress());
             protocol.connect();
+            if (log.isLoggable(Level.FINE)) log.fine("connected to " + protocol.getHostAddress());
+
             if (searchFilter.isSearchForMaster() && protocol.isMasterConnection()) {
                 searchFilter.setSearchForMaster(false);
                 protocol.setMustBeMasterConnection(true);
@@ -122,7 +126,7 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
             }
         } catch (QueryException e ) {
             blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
-            log.fine("Could not connect to " + protocol.currentHost + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
+            if (log.isLoggable(Level.FINE)) log.fine("Could not connect to " + protocol.currentHost + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
         }
     }
 
@@ -163,7 +167,11 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
                 int index = rand.nextInt(searchAddresses.size());
                 protocol.setHostAddress(searchAddresses.get(index));
                 searchAddresses.remove(index);
-                protocol.connect(protocol.currentHost.host, protocol.currentHost.port);
+
+                if (log.isLoggable(Level.FINE)) log.fine("trying to connect to " + protocol.getHostAddress());
+                protocol.connect();
+                if (log.isLoggable(Level.FINE)) log.fine("connected to " + protocol.getHostAddress());
+
                 if (searchFilter.isSearchForMaster() && protocol.isMasterConnection()) {
                     searchFilter.setSearchForMaster(false);
                     protocol.setMustBeMasterConnection(true);
@@ -182,10 +190,7 @@ public class AuroraMultiNodesProtocol extends ReplicationProtocol {
                 }
             } catch (QueryException e ) {
                 if (blacklist!=null)blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
-                log.fine("Could not connect to " + protocol.currentHost + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
-            } catch (IOException e ) {
-                if (blacklist!=null)blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
-                log.fine("Could not connect to " + protocol.currentHost + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
+                if (log.isLoggable(Level.FINE)) log.fine("Could not connect to " + protocol.currentHost + " searching for master : " + searchFilter.isSearchForMaster() + " for replica :" + searchFilter.isSearchForSlave() + " error:" + e.getMessage());
             }
             if (!searchFilter.isSearchForMaster() && !searchFilter.isSearchForSlave()) return;
         }

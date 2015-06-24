@@ -49,6 +49,7 @@ OF SUCH DAMAGE.
 
 package org.mariadb.jdbc.internal.mysql.listener;
 
+import org.mariadb.jdbc.HostAddress;
 import org.mariadb.jdbc.JDBCUrl;
 import org.mariadb.jdbc.internal.SQLExceptionMapper;
 import org.mariadb.jdbc.internal.common.QueryException;
@@ -58,6 +59,8 @@ import org.mariadb.jdbc.internal.mysql.Protocol;
 
 import java.lang.reflect.Method;
 import java.sql.SQLException;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -67,7 +70,6 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
 
     public MasterOnlyFailoverListener(final JDBCUrl jdbcUrl) {
         super(jdbcUrl);
-        log.finest("init jdbc :"+jdbcUrl.toString());
     }
 
     public void initializeConnection() throws QueryException {
@@ -80,9 +82,7 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
 
     public void preExecute() throws SQLException {
         if (isMasterHostFail())queriesSinceFailover++;
-
     }
-
 
     public boolean shouldReconnect() {
         return (isMasterHostFail() && currentConnectionAttempts < maxReconnects);
@@ -90,9 +90,11 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
 
     public void reconnectFailedConnection() throws QueryException {
         currentConnectionAttempts++;
-        log.fine("launching reconnectFailedConnection loop jdbc="+this.jdbcUrl.toString());
+        log.fine("launching reconnectFailedConnection loop");
         resetOldsBlackListHosts();
-        MySQLProtocol.loop(this, this.jdbcUrl.getHostAddresses(), blacklist, null);
+        List<HostAddress> loopAddress = new LinkedList(jdbcUrl.getHostAddresses());
+        loopAddress.removeAll(blacklist.keySet());
+        MySQLProtocol.loop(this, loopAddress, blacklist, null);
         log.fine("launching reconnectFailedConnection loop end");
 
         //if no error, reset failover variables
@@ -133,7 +135,7 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
             if (!this.currentProtocol.inTransaction()) {
                 //trying to reconnect transparently
                 reconnectFailedConnection();
-                log.finest("SQL Primary node [" + this.currentProtocol.getHostAddress().toString() + "] connection re-established");
+                if (log.isLoggable(Level.FINEST)) log.finest("SQL Primary node [" + this.currentProtocol.getHostAddress().toString() + "] connection re-established");
                 return relaunchOperation(method, args);
             }
         }
@@ -173,6 +175,7 @@ public class MasterOnlyFailoverListener extends BaseFailoverListener implements 
         }
 
         resetMasterFailoverData();
+        if (!isSecondaryHostFail())stopFailover();
 
     }
 }

@@ -158,7 +158,7 @@ public class MySQLProtocol implements Protocol {
     protected Socket socket;
     protected PacketOutputStream writer;
     private  String version;
-    private boolean readOnly = false;
+    protected boolean readOnly = false;
     private String database;
     private final String username;
     private final String password;
@@ -684,14 +684,14 @@ public class MySQLProtocol implements Protocol {
             protocol.setHostAddress(searchAddresses.get(index));
             searchAddresses.remove(index);
             try {
-                log.fine("trying to connect to " + protocol.getHostAddress());
+                if (log.isLoggable(Level.FINE)) log.fine("trying to connect to " + protocol.getHostAddress());
                 protocol.connect();
-                log.fine("connected to " + protocol.getHostAddress());
+                if (log.isLoggable(Level.FINE)) log.fine("connected to " + protocol.getHostAddress());
                 listener.foundActiveMaster(protocol);
                 return true;
             } catch (QueryException e ) {
                 if (blacklist!=null)blacklist.put(protocol.getHostAddress(), System.currentTimeMillis());
-                log.info("Could not connect to " + protocol.getHostAddress() + " searching for master, error:" + e.getMessage());
+                if (log.isLoggable(Level.INFO)) log.info("Could not connect to " + protocol.getHostAddress() + " searching for master, error:" + e.getMessage());
             }
         }
         return false;

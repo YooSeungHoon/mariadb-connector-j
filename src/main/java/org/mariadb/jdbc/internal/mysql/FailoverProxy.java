@@ -129,7 +129,9 @@ public class FailoverProxy implements InvocationHandler {
      * @return true if there has been a connection error that must be handled by failover
      */
     public boolean hasToHandleFailover(QueryException e){
-        if (e.getSqlState() != null && e.getSqlState().startsWith("08") || "70100".equals(e.getSqlState())) {
+        if (e.getSqlState() != null && e.getSqlState().startsWith("08")
+                //|| "70100".equals(e.getSqlState())
+                ) {
             return true;
         }
         return false;

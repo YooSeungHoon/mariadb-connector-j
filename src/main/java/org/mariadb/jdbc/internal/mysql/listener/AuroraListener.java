@@ -65,6 +65,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class AuroraListener extends ReplicationListener {
@@ -102,19 +103,19 @@ public class AuroraListener extends ReplicationListener {
         resetOldsBlackListHosts();
 
         List<HostAddress> loopAddress = new LinkedList(jdbcUrl.getHostAddresses());
-        List<HostAddress> failAddress = new LinkedList<HostAddress>();
+        loopAddress.removeAll(blacklist.keySet());
+        if (masterProtocol != null && !isMasterHostFail()) loopAddress.remove(masterProtocol.getHostAddress());
 
-        if (masterProtocol!=null && masterProtocol.getHostAddress() != null)loopAddress.remove(masterProtocol.getHostAddress());
-        if (isMasterHostFail()) {
-            failAddress.add(masterProtocol.getHostAddress());
-        }
-
-        if (secondaryProtocol!=null && secondaryProtocol.getHostAddress() != null)loopAddress.remove(secondaryProtocol.getHostAddress());
-        if (isSecondaryHostFail()) {
-            failAddress.add(secondaryProtocol.getHostAddress());
-        } else if (isMasterHostFail()) {
-            HostAddress probableMaster = searchByStartName(secondaryProtocol, loopAddress);
-            if (probableMaster != null) AuroraMultiNodesProtocol.searchProbableMaster(this, probableMaster, blacklist, new SearchFilter(searchForMaster, searchForSecondary));
+        if (!isSecondaryHostFail()) {
+            if (secondaryProtocol != null) loopAddress.remove(secondaryProtocol.getHostAddress());
+            if (isMasterHostFail()) {
+                log.fine("searching probableMaster");
+                HostAddress probableMaster = searchByStartName(secondaryProtocol, loopAddress);
+                if (probableMaster != null) {
+                    if (log.isLoggable(Level.FINE)) log.fine("probableMaster found : "+probableMaster);
+                    AuroraMultiNodesProtocol.searchProbableMaster(this, probableMaster, blacklist, new SearchFilter(searchForMaster, searchForSecondary));
+                }
+            }
         }
 
         if (((searchForMaster && isMasterHostFail())|| (searchForSecondary && isSecondaryHostFail())) || initialConnection) {
@@ -153,7 +154,7 @@ public class AuroraListener extends ReplicationListener {
         if (autoReconnect) {
             try {
                 reconnectFailedConnection();
-                log.finest("SQL Primary node [" + this.masterProtocol.getHostAddress().toString() + "] connection re-established");
+                if (log.isLoggable(Level.FINEST))log.finest("SQL Primary node [" + this.masterProtocol.getHostAddress().toString() + "] connection re-established");
                 return relaunchOperation(method, args); //now that we are reconnect, relaunched result if the result was not crashing the node
             } catch (Exception ee) {
                 //in case master is down and another slave has been found
@@ -176,19 +177,23 @@ public class AuroraListener extends ReplicationListener {
      * @param loopAddress list of possible hosts
      */
     public HostAddress  searchByStartName(Protocol secondaryProtocol, List<HostAddress> loopAddress) {
+        SelectQueryResult queryResult = null;
         try {
-            QueryResult queryResult = secondaryProtocol.executeQuery(new MySQLQuery("select server_id from information_schema.replica_host_status where session_id = 'MASTER_SESSION_ID'"));
-            if (queryResult.getResultSetType() == ResultSetType.SELECT && ((SelectQueryResult) queryResult).next()) {
-                String masterHostName = ((SelectQueryResult) queryResult).getValueObject(0).getString();
-                for (int i = 0; i < loopAddress.size(); i++) {
-                    if (loopAddress.get(i).host.startsWith(masterHostName)) {
-                        log.fine("master probably "+loopAddress.get(i));
-                        return loopAddress.get(i);
-                    }
+            queryResult = (SelectQueryResult) secondaryProtocol.executeQuery(new MySQLQuery("select server_id from information_schema.replica_host_status where session_id = 'MASTER_SESSION_ID'"));
+            queryResult.next();
+            String masterHostName = queryResult.getValueObject(0).getString();
+            for (int i = 0; i < loopAddress.size(); i++) {
+                if (loopAddress.get(i).host.startsWith(masterHostName)) {
+                    if (log.isLoggable(Level.FINE))log.fine("master probably "+loopAddress.get(i));
+                    return loopAddress.get(i);
                 }
             }
         } catch (Exception ioe) {
             //do nothing
+        } finally {
+            if (queryResult != null) {
+                queryResult.close();
+            }
         }
         return null;
     }

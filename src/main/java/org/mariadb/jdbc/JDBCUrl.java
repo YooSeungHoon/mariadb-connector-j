@@ -58,7 +58,6 @@ import java.util.Properties;
 /**
  * <p>parse and verification of URL.</p>
  *
- * the URL format has 2 Connection syntax :<br>
  *
  * <p>basic syntax :<br>
  * {@code jdbc:(mysql|mariadb):[replication:|loadbalance:|aurora:]//<hostDescription>[,<hostDescription>]/[database>][?<key1>=<value1>[&<key2>=<value2>]] }
@@ -229,6 +228,7 @@ public class JDBCUrl {
             boolean first=true;
             for (String key : properties.stringPropertyNames()) {
                 s+=(first?"?":"&")+key+"="+properties.get(key);
+                first=false;
             }
         }
         return s;

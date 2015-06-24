@@ -67,6 +67,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public abstract class BaseFailoverListener implements FailoverListener {
@@ -216,7 +217,7 @@ public abstract class BaseFailoverListener implements FailoverListener {
      */
     public void addToBlacklist(HostAddress hostAddress) {
         if (hostAddress != null) {
-            log.fine("host " + hostAddress+" added to blacklist");
+            if (log.isLoggable(Level.FINE))log.fine("host " + hostAddress+" added to blacklist");
             blacklist.put(hostAddress, System.currentTimeMillis());
         }
     }
@@ -229,7 +230,7 @@ public abstract class BaseFailoverListener implements FailoverListener {
         Set<HostAddress> currentBlackListkeys = new HashSet<HostAddress>(blacklist.keySet());
         for (HostAddress blackListHost : currentBlackListkeys) {
             if (blacklist.get(blackListHost) < currentTime - loadBalanceBlacklistTimeout * 1000) {
-                log.fine("host " + blackListHost+" remove of blacklist");
+                if (log.isLoggable(Level.FINE)) log.fine("host " + blackListHost+" remove of blacklist");
                 blacklist.remove(blackListHost);
             }
         }
@@ -265,9 +266,9 @@ public abstract class BaseFailoverListener implements FailoverListener {
 
         public void run() {
             synchronized (listener) {
-                log.fine("failLoop , has a failover : "+(isMasterHostFail() || isSecondaryHostFail()));
+                if (log.isLoggable(Level.FINE)) log.fine("failLoop , has a failover : "+(isMasterHostFail() || isSecondaryHostFail()));
                 if (isMasterHostFail() || isSecondaryHostFail()) {
-                    log.fine("failLoop , listener.shouldReconnect() : "+listener.shouldReconnect());
+                    if (log.isLoggable(Level.FINE)) log.fine("failLoop , listener.shouldReconnect() : "+listener.shouldReconnect());
                     if (listener.shouldReconnect()) {
                         try {
                             listener.reconnectFailedConnection();
@@ -394,7 +395,6 @@ public abstract class BaseFailoverListener implements FailoverListener {
      * @param from used connection
      * @param to will-be-current connection
      * @throws QueryException
-     * @throws SQLException
      */
     public void syncConnection(Protocol from, Protocol to) throws QueryException {
         if (from != null) {

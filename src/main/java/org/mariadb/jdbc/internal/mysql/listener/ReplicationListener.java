@@ -85,8 +85,6 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
 
     public void initializeConnection() throws QueryException {
         parseHAOptions();
-        //if (validConnectionTimeout != 0) scheduledPing = Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(new PingLoop(this), 1, 1, TimeUnit.SECONDS);
-
         if (validConnectionTimeout != 0) scheduledPing = Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(new PingLoop(this), validConnectionTimeout, validConnectionTimeout, TimeUnit.SECONDS);
         try {
             reconnectFailedConnection(true, true, true);
@@ -106,11 +104,11 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
         launchFailLoopIfNotlaunched(false);
     }
 
-    public void preClose()  throws SQLException {
-        if (scheduledPing != null) scheduledPing.cancel(true);
-        if (scheduledFailover!=null)scheduledFailover.cancel(true);
+    public synchronized void preClose()  throws SQLException {
         if (masterProtocol != null && !this.masterProtocol.isClosed()) this.masterProtocol.close();
         if (secondaryProtocol != null && !this.secondaryProtocol.isClosed()) this.secondaryProtocol.close();
+        if (scheduledPing != null) scheduledPing.cancel(true);
+        if (scheduledFailover!=null)scheduledFailover.cancel(true);
     }
 
     @Override
@@ -121,8 +119,10 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
             launchAsyncSearchLoopConnection();
         } else if (validConnectionTimeout != 0) {
             lastQueryTime = System.currentTimeMillis();
-            scheduledPing.cancel(true);
-            scheduledPing = Executors.newSingleThreadScheduledExecutor().schedule(new PingLoop(this), validConnectionTimeout, TimeUnit.SECONDS);
+            synchronized (scheduledPing) {
+                scheduledPing.cancel(true);
+                scheduledPing = Executors.newSingleThreadScheduledExecutor().schedule(new PingLoop(this), validConnectionTimeout, TimeUnit.SECONDS);
+            }
         }
     }
 
@@ -170,7 +170,7 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
     /**
      * Loop to replace failed connections with valid ones.
      * @throws QueryException if there is any error during reconnection
-     * @throws SQLException sqlException
+     * @throws QueryException sqlException
      */
     public void reconnectFailedConnection() throws QueryException {
         currentConnectionAttempts++;
@@ -184,6 +184,9 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
         resetOldsBlackListHosts();
         List<HostAddress> loopAddress = new LinkedList(jdbcUrl.getHostAddresses());
         loopAddress.removeAll(blacklist.keySet());
+        if (masterProtocol != null && !isMasterHostFail()) loopAddress.remove(masterProtocol.getHostAddress());
+        if (secondaryProtocol != null && !isSecondaryHostFail()) loopAddress.remove(secondaryProtocol.getHostAddress());
+
 
         if (((searchForMaster && isMasterHostFail())|| (searchForSecondary && isSecondaryHostFail())) || initialConnection) {
 
@@ -214,7 +217,7 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
             } else log.info("new primary node [" + newMasterProtocol.getHostAddress().toString() + "] connection established");
         }
         resetMasterFailoverData();
-
+        if (!isSecondaryHostFail())stopFailover();
     }
 
 
@@ -244,12 +247,13 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
 
         }
         resetSecondaryFailoverData();
+        if (!isMasterHostFail())stopFailover();
     }
 
     /**
      * switch to a read-only(secondary) or read and write connection(master)
      * @param mustBeReadOnly the read-only status asked
-     * @throws SQLException if operation hasn't change protocol
+     * @throws QueryException if operation hasn't change protocol
      */
     @Override
     public void switchReadOnlyConnection(Boolean mustBeReadOnly) throws QueryException {
@@ -325,7 +329,7 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
         //try to reconnect automatically only time before looping
         try {
             if(masterProtocol != null && masterProtocol.ping()) {
-                log.info("SQL Primary node [" + masterProtocol.getHostAddress().toString() + "] connection re-established");
+                if (log.isLoggable(Level.INFO)) log.info("SQL Primary node [" + masterProtocol.getHostAddress().toString() + "] connection re-established");
                 return relaunchOperation(method, args);
             }
         } catch (Exception e) {
@@ -335,7 +339,7 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
         if (autoReconnect && masterProtocol != null && !masterProtocol.inTransaction()) {
             try {
                 reconnectFailedConnection();
-                log.finest("SQL Primary node [" + this.masterProtocol.getHostAddress().toString() + "] connection re-established");
+                if (log.isLoggable(Level.FINEST)) log.finest("SQL Primary node [" + this.masterProtocol.getHostAddress().toString() + "] connection re-established");
 
                 //now that we are reconnect, relaunched result if the result was not crashing the node
                 return relaunchOperation(method, args);
@@ -377,14 +381,14 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
     public HandleErrorResult secondaryFail(Method method, Object[] args) throws Throwable {
         try {
             if(this.secondaryProtocol != null && this.secondaryProtocol.ping()) {
-                log.info("SQL Secondary node [" + this.secondaryProtocol.getHostAddress().toString() + "] connection re-established");
+                if (log.isLoggable(Level.INFO)) log.info("SQL Secondary node [" + this.secondaryProtocol.getHostAddress().toString() + "] connection re-established");
                 return relaunchOperation(method, args);
             }
         } catch (Exception e) {
             log.finest("ping fail on secondary");
             if (setSecondaryHostFail()) addToBlacklist(this.secondaryProtocol.getHostAddress());
         }
-        log.finest("isMasterHostFail() " + isMasterHostFail());
+        if (log.isLoggable(Level.FINEST)) log.finest("isMasterHostFail() " + isMasterHostFail());
 
         if (!isMasterHostFail()) {
             try {
@@ -406,7 +410,7 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
         if (autoReconnect) {
             try {
                 reconnectFailedConnection();
-                log.finest("SQL secondary node [" + this.secondaryProtocol.getHostAddress().toString() + "] connection re-established");
+                if (log.isLoggable(Level.FINEST)) log.finest("SQL secondary node [" + this.secondaryProtocol.getHostAddress().toString() + "] connection re-established");
                 return relaunchOperation(method, args); //now that we are reconnect, relaunched result if the result was not crashing the node
             } catch (Exception ee) {
                 //in case master is down and another slave has been found
@@ -441,7 +445,7 @@ public class ReplicationListener extends BaseFailoverListener implements Failove
 
                 log.finest("PingLoop run");
                 if (!isMasterHostFail()) {
-                    log.finest("PingLoop run, master not see failed");
+                    log.finest("PingLoop run, master not seen failed");
                     boolean masterFail = false;
                     try {
                         if (masterProtocol != null && masterProtocol.ping()) {
