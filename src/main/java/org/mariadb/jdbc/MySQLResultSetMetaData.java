@@ -186,6 +186,8 @@ public class MySQLResultSetMetaData implements ResultSetMetaData {
      */
     public String getColumnName(final int column) throws SQLException {
         String s =  getColumnInformation(column).getOriginalName();
+        if (returnTableAlias == true)    // if useOldAliasMetadataBehavior=true then getColumnName return getCoulmnLabel
+         s =  getColumnLabel(column); 
         if ("".equals(s))  // odd things that are no columns, e.g count(*)
             s =  getColumnLabel(column);
         return s;
